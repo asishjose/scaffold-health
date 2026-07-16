@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -34,3 +35,17 @@ class AccessTokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class InvitePreviewResponse(BaseModel):
+    email: str
+    expires_at: datetime
+
+
+class AcceptInviteRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=255)
+
+
+class AcceptInviteResponse(BaseModel):
+    id: uuid.UUID
+    email: str
