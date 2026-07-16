@@ -5,13 +5,16 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.security import CurrentUser, get_current_user, require_role
+from app.checkins.schemas import CheckInResponse
 from app.patients import commands
 from app.patients.schemas import (
+    AdvancePhaseRequest,
     PatientDetailResponse,
     PatientIntakeRequest,
     PatientIntakeResponse,
     PatientListItem,
     PatientPortalDetailResponse,
+    PhaseAdvanceResponse,
 )
 from app.query_api import patient as patient_queries
 from app.query_api import therapist as therapist_queries
@@ -69,7 +72,14 @@ def get_patient(
         )
         if patient is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        return PatientDetailResponse.model_validate(patient)
+
+        checkins = therapist_queries.list_checkins(
+            db, therapist_id=current_user.id, patient_id=patient_id
+        )
+        detail = PatientDetailResponse.model_validate(patient)
+        return detail.model_copy(
+            update={"pain_history": [CheckInResponse.model_validate(c) for c in checkins]}
+        )
 
     if current_user.id != patient_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
@@ -78,3 +88,32 @@ def get_patient(
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     return PatientPortalDetailResponse.model_validate(patient)
+
+
+@router.post("/{patient_id}/phase", response_model=PhaseAdvanceResponse)
+def advance_phase(
+    patient_id: uuid.UUID,
+    payload: AdvancePhaseRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PhaseAdvanceResponse:
+    require_role(current_user, "therapist")
+
+    try:
+        patient = commands.advance_phase(
+            db,
+            patient_id=patient_id,
+            therapist_id=current_user.id,
+            target_phase=payload.target_phase,
+            note=payload.note,
+        )
+    except commands.PatientNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found"
+        ) from exc
+    except commands.InvalidPhaseTransition as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Invalid phase transition"
+        ) from exc
+
+    return PhaseAdvanceResponse.model_validate(patient)

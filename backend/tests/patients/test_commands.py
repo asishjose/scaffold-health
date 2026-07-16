@@ -107,3 +107,86 @@ def test_activate_patient_account_rejects_expired_token(
         commands.activate_patient_account(
             db, invite_token=patient.invite_token, password="patient-password"
         )
+
+
+def test_advance_phase_moves_to_next_phase(db: Session) -> None:
+    therapist_id = _make_therapist(db)
+    patient = commands.create_patient(db, **_intake_kwargs(therapist_id))
+
+    advanced = commands.advance_phase(
+        db,
+        patient_id=patient.id,
+        therapist_id=therapist_id,
+        target_phase="phase_1_protection",
+        note="cleared for phase 1",
+    )
+
+    assert advanced.current_phase == "phase_1_protection"
+
+    events = get_stream_events(db, stream_id=patient.id)
+    assert [e.event_type for e in events] == ["PatientCreated", "PatientPhaseAdvanced"]
+    assert events[-1].payload == {
+        "from_phase": "pre_op",
+        "to_phase": "phase_1_protection",
+        "note": "cleared for phase 1",
+    }
+
+
+def test_advance_phase_rejects_skipping_ahead(db: Session) -> None:
+    therapist_id = _make_therapist(db)
+    patient = commands.create_patient(db, **_intake_kwargs(therapist_id))
+
+    with pytest.raises(commands.InvalidPhaseTransition):
+        commands.advance_phase(
+            db,
+            patient_id=patient.id,
+            therapist_id=therapist_id,
+            target_phase="phase_2_early_strength",
+            note=None,
+        )
+
+
+def test_advance_phase_rejects_regression(db: Session) -> None:
+    therapist_id = _make_therapist(db)
+    patient = commands.create_patient(db, **_intake_kwargs(therapist_id))
+    commands.advance_phase(
+        db, patient_id=patient.id, therapist_id=therapist_id, target_phase="phase_1_protection", note=None
+    )
+
+    with pytest.raises(commands.InvalidPhaseTransition):
+        commands.advance_phase(
+            db, patient_id=patient.id, therapist_id=therapist_id, target_phase="pre_op", note=None
+        )
+
+
+def test_advance_phase_rejects_past_final_phase(db: Session) -> None:
+    from app.patients.events import PHASE_SEQUENCE
+
+    therapist_id = _make_therapist(db)
+    patient = commands.create_patient(db, **_intake_kwargs(therapist_id))
+    for target in PHASE_SEQUENCE[1:]:
+        patient = commands.advance_phase(
+            db, patient_id=patient.id, therapist_id=therapist_id, target_phase=target, note=None
+        )
+
+    assert patient.current_phase == PHASE_SEQUENCE[-1]
+
+    with pytest.raises(commands.InvalidPhaseTransition):
+        commands.advance_phase(
+            db, patient_id=patient.id, therapist_id=therapist_id, target_phase="anything", note=None
+        )
+
+
+def test_advance_phase_rejects_non_owning_therapist(db: Session) -> None:
+    therapist_id = _make_therapist(db)
+    other_therapist_id = _make_therapist(db)
+    patient = commands.create_patient(db, **_intake_kwargs(therapist_id))
+
+    with pytest.raises(commands.PatientNotFound):
+        commands.advance_phase(
+            db,
+            patient_id=patient.id,
+            therapist_id=other_therapist_id,
+            target_phase="phase_1_protection",
+            note=None,
+        )

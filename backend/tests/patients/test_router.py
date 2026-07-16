@@ -152,3 +152,66 @@ def test_invite_preview_unknown_token_returns_404() -> None:
     response = client.get("/auth/invite/not-a-real-token")
 
     assert response.status_code == 404
+
+
+def test_advance_phase_as_owning_therapist() -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+
+    response = client.post(
+        f"/patients/{created['id']}/phase",
+        json={"target_phase": "phase_1_protection", "note": "cleared for phase 1"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["current_phase"] == "phase_1_protection"
+
+
+def test_advance_phase_rejects_skipping_ahead() -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+
+    response = client.post(
+        f"/patients/{created['id']}/phase",
+        json={"target_phase": "phase_2_early_strength", "note": None},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 409
+
+
+def test_advance_phase_rejects_patient_role() -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    patient_token = create_access_token(subject=str(uuid.uuid4()), role="patient")
+
+    response = client.post(
+        f"/patients/{created['id']}/phase",
+        json={"target_phase": "phase_1_protection", "note": None},
+        headers=_auth_headers(patient_token),
+    )
+
+    assert response.status_code == 403
+
+
+def test_advance_phase_rejects_non_owning_therapist() -> None:
+    token_a, _ = _signup_and_login_therapist()
+    token_b, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token_a)
+    ).json()
+
+    response = client.post(
+        f"/patients/{created['id']}/phase",
+        json={"target_phase": "phase_1_protection", "note": None},
+        headers=_auth_headers(token_b),
+    )
+
+    assert response.status_code == 404

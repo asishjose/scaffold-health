@@ -3,6 +3,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.checkins.schemas import CheckInResponse
+
 
 class PatientIntakeRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -52,6 +54,19 @@ class PatientDetailResponse(BaseModel):
     current_phase: str
     invite_accepted_at: datetime | None
     created_at: datetime
+    pain_history: list[CheckInResponse] = Field(default_factory=list)
+
+
+class AdvancePhaseRequest(BaseModel):
+    target_phase: str
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class PhaseAdvanceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    current_phase: str
 
 
 class PatientPortalDetailResponse(BaseModel):

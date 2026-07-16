@@ -2,6 +2,7 @@ import secrets
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import Therapist
@@ -14,12 +15,22 @@ from app.patients.events import (
     INJURY_ACL_RECONSTRUCTION,
     PATIENT_ACCOUNT_ACTIVATED,
     PATIENT_CREATED,
+    PATIENT_PHASE_ADVANCED,
+    PHASE_SEQUENCE,
     STREAM_TYPE_PATIENT,
 )
 from app.patients.models import Patient
 
 
 class TherapistNotFound(Exception):
+    pass
+
+
+class PatientNotFound(Exception):
+    pass
+
+
+class InvalidPhaseTransition(Exception):
     pass
 
 
@@ -76,6 +87,47 @@ def activate_patient_account(db: Session, *, invite_token: str, password: str) -
         payload={"password_hash": hash_password(password)},
         actor_id=patient.id,
         actor_role="patient",
+    )
+    patient = projector.apply(db, event)
+    db.commit()
+
+    return patient
+
+
+def advance_phase(
+    db: Session,
+    *,
+    patient_id: uuid.UUID,
+    therapist_id: uuid.UUID,
+    target_phase: str,
+    note: str | None,
+) -> Patient:
+    patient = db.execute(
+        select(Patient).where(Patient.id == patient_id, Patient.therapist_id == therapist_id)
+    ).scalar_one_or_none()
+    if patient is None:
+        raise PatientNotFound()
+
+    try:
+        current_index = PHASE_SEQUENCE.index(patient.current_phase)
+    except ValueError:
+        raise InvalidPhaseTransition() from None
+
+    if current_index + 1 >= len(PHASE_SEQUENCE):
+        raise InvalidPhaseTransition()
+
+    next_phase = PHASE_SEQUENCE[current_index + 1]
+    if target_phase != next_phase:
+        raise InvalidPhaseTransition()
+
+    event = append_event(
+        db,
+        stream_id=patient.id,
+        stream_type=STREAM_TYPE_PATIENT,
+        event_type=PATIENT_PHASE_ADVANCED,
+        payload={"from_phase": patient.current_phase, "to_phase": next_phase, "note": note},
+        actor_id=therapist_id,
+        actor_role="therapist",
     )
     patient = projector.apply(db, event)
     db.commit()
