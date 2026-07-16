@@ -18,5 +18,7 @@ class Settings(BaseSettings):
 
     invite_token_expire_hours: int = 48
 
+    documents_storage_dir: str = "/app/data/documents"
+
 
 settings = Settings()
