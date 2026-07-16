@@ -1,6 +1,7 @@
 import { UserPlus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
 import { usePatients } from '@/shared/hooks/usePatients'
 import { weeksPostOpLabel } from '@/shared/lib/utils'
 import { phaseLabel } from '@/shared/phases'
@@ -49,6 +50,7 @@ export function PatientList() {
                   <th className="px-6 py-3 font-medium">Phase</th>
                   <th className="px-6 py-3 font-medium">Recovery</th>
                   <th className="px-6 py-3 font-medium">Account</th>
+                  <th className="px-6 py-3 font-medium">Needs review</th>
                 </tr>
               </thead>
               <tbody>
@@ -74,6 +76,11 @@ export function PatientList() {
                       ) : (
                         <Badge variant="warning">Invite pending</Badge>
                       )}
+                    </td>
+                    <td className="px-6 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        <NeedsReviewBadges reasons={patient.needs_review} />
+                      </div>
                     </td>
                   </tr>
                 ))}

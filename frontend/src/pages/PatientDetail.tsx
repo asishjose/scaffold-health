@@ -4,15 +4,29 @@ import { Link, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/shared/api/client'
 import type { PatientDetail as PatientDetailType } from '@/shared/api/types'
+import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
 import { useDocuments, useUploadDocument } from '@/shared/hooks/useDocuments'
 import { useAdvancePhase, usePatient } from '@/shared/hooks/usePatients'
 import { cn, formatDate, formatDateTime, injuryLabel, weeksPostOpLabel } from '@/shared/lib/utils'
 import { nextPhase, phaseLabel } from '@/shared/phases'
+import { profileFieldLabel } from '@/shared/profileFields'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 import { Label } from '@/shared/ui/label'
 import { Textarea } from '@/shared/ui/textarea'
+
+const PAIN_TREND_LABELS: Record<string, string> = {
+  improving: 'Improving',
+  worsening: 'Worsening',
+  stable: 'Stable',
+}
+
+const PAIN_TREND_VARIANTS: Record<string, 'success' | 'destructive' | 'secondary'> = {
+  improving: 'success',
+  worsening: 'destructive',
+  stable: 'secondary',
+}
 
 function ProfileSummaryCards({ patient }: { patient: PatientDetailType }) {
   const fields = [
@@ -145,6 +159,110 @@ function DocumentsPanel({ patientId }: { patientId: string }) {
                 </li>
               )
             })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function KnowledgeProfilePanel({ patient }: { patient: PatientDetailType }) {
+  const groups = [
+    { label: 'Active restrictions', values: patient.active_restrictions },
+    { label: 'Active concerns', values: patient.active_concerns },
+    { label: 'Milestones', values: patient.milestones },
+  ]
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Knowledge profile</CardTitle>
+        <CardDescription>Extracted from uploaded documents.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {patient.pain_trend && (
+            <Badge variant={PAIN_TREND_VARIANTS[patient.pain_trend]}>
+              Pain trend: {PAIN_TREND_LABELS[patient.pain_trend]}
+            </Badge>
+          )}
+          {patient.exercise_adherence !== null && (
+            <span className="text-muted-foreground">
+              Check-in adherence (7d):{' '}
+              <span className="font-medium text-foreground">{patient.exercise_adherence}%</span>
+            </span>
+          )}
+        </div>
+        {groups.map((group) => (
+          <div key={group.label}>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{group.label}</p>
+            {group.values.length === 0 ? (
+              <p className="mt-1 text-sm text-muted-foreground">None extracted yet.</p>
+            ) : (
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                {group.values.map((value) => (
+                  <li key={value}>{value}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ProvenancePanel({ patient }: { patient: PatientDetailType }) {
+  const documents = useDocuments(patient.id)
+  const filenameById = new Map(documents.data?.map((doc) => [doc.id, doc.filename]) ?? [])
+
+  const fields = [...patient.profile_fields].sort(
+    (a, b) => new Date(b.extracted_at).getTime() - new Date(a.extracted_at).getTime(),
+  )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Provenance</CardTitle>
+        <CardDescription>Every extracted fact, its confidence, and its source.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {fields.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No extracted facts yet.</p>
+        ) : (
+          <ul className="divide-y">
+            {fields.map((field) => (
+              <li
+                key={field.id}
+                className={cn(
+                  'space-y-1 py-3',
+                  field.is_contradiction &&
+                    'rounded-md border border-destructive/40 bg-destructive/5 px-3',
+                  field.superseded_at && !field.is_contradiction && 'opacity-50',
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{profileFieldLabel(field.field_name)}</Badge>
+                  {field.confidence !== null && (
+                    <span className="text-xs text-muted-foreground">
+                      conf {field.confidence.toFixed(2)}
+                    </span>
+                  )}
+                  {field.is_contradiction && <Badge variant="destructive">Contradiction</Badge>}
+                  {field.superseded_at && <Badge variant="secondary">Superseded</Badge>}
+                </div>
+                <p className="text-sm font-medium">{field.value}</p>
+                {field.source_quote && (
+                  <p className="text-xs italic text-muted-foreground">“{field.source_quote}”</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {field.source_document_id && filenameById.get(field.source_document_id)
+                    ? `From ${filenameById.get(field.source_document_id)} · `
+                    : ''}
+                  {formatDateTime(field.extracted_at)}
+                </p>
+              </li>
+            ))}
           </ul>
         )}
       </CardContent>
@@ -319,6 +437,7 @@ export function PatientDetail() {
           <h1 className="text-2xl font-semibold">{data.name}</h1>
           <Badge variant="secondary">{phaseLabel(data.current_phase)}</Badge>
           {!data.invite_accepted_at && <Badge variant="warning">Invite pending</Badge>}
+          <NeedsReviewBadges reasons={data.needs_review} />
         </div>
       </div>
 
@@ -327,9 +446,13 @@ export function PatientDetail() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-6">
           <DocumentsPanel patientId={data.id} />
+          <KnowledgeProfilePanel patient={data} />
           <PhaseAdvanceControl patient={data} />
         </div>
-        <PainHistoryPanel patient={data} />
+        <div className="space-y-6">
+          <PainHistoryPanel patient={data} />
+          <ProvenancePanel patient={data} />
+        </div>
       </div>
     </div>
   )

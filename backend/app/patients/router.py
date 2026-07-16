@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -16,6 +17,8 @@ from app.patients.schemas import (
     PatientPortalDetailResponse,
     PhaseAdvanceResponse,
 )
+from app.profile import derived
+from app.profile.schemas import ProfileFieldResponse
 from app.query_api import patient as patient_queries
 from app.query_api import therapist as therapist_queries
 
@@ -55,7 +58,15 @@ def list_caseload(
     require_role(current_user, "therapist")
 
     patients = therapist_queries.list_caseload(db, therapist_id=current_user.id)
-    return [PatientListItem.model_validate(patient) for patient in patients]
+    reasons_by_patient = therapist_queries.list_needs_review_reasons(
+        db, therapist_id=current_user.id, patients=patients
+    )
+    return [
+        PatientListItem.model_validate(patient).model_copy(
+            update={"needs_review": reasons_by_patient.get(patient.id, [])}
+        )
+        for patient in patients
+    ]
 
 
 @router.get("/{patient_id}", response_model=PatientDetailResponse | PatientPortalDetailResponse)
@@ -76,9 +87,45 @@ def get_patient(
         checkins = therapist_queries.list_checkins(
             db, therapist_id=current_user.id, patient_id=patient_id
         )
+        profile_fields = therapist_queries.list_profile_fields(
+            db, therapist_id=current_user.id, patient_id=patient_id
+        )
+
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
+        recent_checkin_count = sum(1 for c in checkins if c.submitted_at >= window_start)
+        needs_review = derived.compute_needs_review_reasons(
+            has_contradiction=any(f.is_contradiction for f in profile_fields),
+            invite_accepted_at=patient.invite_accepted_at,
+            is_discharged=patient.current_phase == therapist_queries.DISCHARGED_PHASE,
+            recent_checkin_count=recent_checkin_count,
+            now=now,
+        )
+
         detail = PatientDetailResponse.model_validate(patient)
         return detail.model_copy(
-            update={"pain_history": [CheckInResponse.model_validate(c) for c in checkins]}
+            update={
+                "pain_history": [CheckInResponse.model_validate(c) for c in checkins],
+                "active_restrictions": therapist_queries.current_field_values(
+                    profile_fields, "active_restrictions"
+                ),
+                "active_concerns": therapist_queries.current_field_values(
+                    profile_fields, "active_concerns"
+                ),
+                "milestones": therapist_queries.current_field_values(profile_fields, "milestones"),
+                "pain_trend": derived.compute_pain_trend(
+                    [(c.submitted_at, c.pain_level) for c in checkins]
+                ),
+                "exercise_adherence": (
+                    derived.compute_exercise_adherence(
+                        [c.submitted_at for c in checkins], now=now
+                    )
+                    if patient.invite_accepted_at
+                    else None
+                ),
+                "needs_review": needs_review,
+                "profile_fields": [ProfileFieldResponse.model_validate(f) for f in profile_fields],
+            }
         )
 
     if current_user.id != patient_id:
@@ -87,7 +134,16 @@ def get_patient(
     patient = patient_queries.get_own_patient(db, patient_id=patient_id)
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-    return PatientPortalDetailResponse.model_validate(patient)
+
+    checkins = patient_queries.list_own_checkins(db, patient_id=patient_id)
+    portal = PatientPortalDetailResponse.model_validate(patient)
+    return portal.model_copy(
+        update={
+            "pain_trend": derived.compute_pain_trend(
+                [(c.submitted_at, c.pain_level) for c in checkins]
+            ),
+        }
+    )
 
 
 @router.post("/{patient_id}/phase", response_model=PhaseAdvanceResponse)

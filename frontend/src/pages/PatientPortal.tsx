@@ -12,6 +12,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/sha
 import { Label } from '@/shared/ui/label'
 import { Textarea } from '@/shared/ui/textarea'
 
+const PAIN_TREND_COPY: Record<string, string> = {
+  improving: 'Your reported pain has been trending down recently.',
+  worsening: 'Your reported pain has been trending up recently.',
+  stable: 'Your reported pain has been holding steady recently.',
+}
+
 function ProfileCard({ profile }: { profile: PatientPortalDetail }) {
   return (
     <Card>
@@ -21,11 +27,16 @@ function ProfileCard({ profile }: { profile: PatientPortalDetail }) {
           {injuryLabel(profile.injury)} · surgery on {formatDate(profile.surgery_date)}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-3">
-        <Badge className="text-sm">{phaseLabel(profile.current_phase)}</Badge>
-        <span className="text-sm text-muted-foreground">
-          {weeksPostOpLabel(profile.surgery_date)}
-        </span>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge className="text-sm">{phaseLabel(profile.current_phase)}</Badge>
+          <span className="text-sm text-muted-foreground">
+            {weeksPostOpLabel(profile.surgery_date)}
+          </span>
+        </div>
+        {profile.pain_trend && (
+          <p className="text-sm text-muted-foreground">{PAIN_TREND_COPY[profile.pain_trend]}</p>
+        )}
       </CardContent>
     </Card>
   )

@@ -13,6 +13,7 @@ from app.checkins import models as checkins_models  # noqa: F401
 from app.documents import models as documents_models  # noqa: F401
 from app.event_store import models as event_store_models  # noqa: F401
 from app.patients import models as patients_models  # noqa: F401
+from app.profile import models as profile_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
