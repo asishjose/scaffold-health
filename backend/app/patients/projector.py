@@ -4,7 +4,11 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.event_store.models import Event
-from app.patients.events import PATIENT_ACCOUNT_ACTIVATED, PATIENT_CREATED
+from app.patients.events import (
+    PATIENT_ACCOUNT_ACTIVATED,
+    PATIENT_CREATED,
+    PATIENT_PHASE_ADVANCED,
+)
 from app.patients.models import Patient
 
 
@@ -17,6 +21,8 @@ def apply(db: Session, event: Event) -> Patient | None:
         return _apply_patient_created(db, event)
     if event.event_type == PATIENT_ACCOUNT_ACTIVATED:
         return _apply_patient_account_activated(db, event)
+    if event.event_type == PATIENT_PHASE_ADVANCED:
+        return _apply_patient_phase_advanced(db, event)
     return None
 
 
@@ -43,5 +49,12 @@ def _apply_patient_account_activated(db: Session, event: Event) -> Patient:
     patient = db.get(Patient, event.stream_id)
     patient.password_hash = event.payload["password_hash"]
     patient.invite_accepted_at = event.created_at
+    db.flush()
+    return patient
+
+
+def _apply_patient_phase_advanced(db: Session, event: Event) -> Patient:
+    patient = db.get(Patient, event.stream_id)
+    patient.current_phase = event.payload["to_phase"]
     db.flush()
     return patient

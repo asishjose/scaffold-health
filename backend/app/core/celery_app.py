@@ -11,6 +11,7 @@ celery_app.conf.task_default_queue = "scaffold_health"
 # need every referenced table registered in this process too. Add new
 # modules here as they're introduced (mirrors alembic/env.py).
 from app.auth import models as auth_models  # noqa: E402,F401
+from app.checkins import models as checkins_models  # noqa: E402,F401
 from app.documents import models as documents_models  # noqa: E402,F401
 from app.event_store import models as event_store_models  # noqa: E402,F401
 from app.patients import models as patients_models  # noqa: E402,F401
