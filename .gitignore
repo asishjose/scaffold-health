@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Uploaded documents (local dev storage volume)
+backend/storage/
