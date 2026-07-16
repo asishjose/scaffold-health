@@ -30,6 +30,7 @@ export interface PatientListItem {
   current_phase: string
   surgery_date: string
   invite_accepted_at: string | null
+  needs_review: string[]
 }
 
 export interface CheckIn {
@@ -37,6 +38,20 @@ export interface CheckIn {
   pain_level: number
   note: string | null
   submitted_at: string
+}
+
+export type PainTrend = 'improving' | 'worsening' | 'stable'
+
+export interface ProfileField {
+  id: string
+  field_name: string
+  value: string
+  confidence: number | null
+  source_quote: string | null
+  source_document_id: string | null
+  extracted_at: string
+  is_contradiction: boolean
+  superseded_at: string | null
 }
 
 export interface PatientDetail {
@@ -51,6 +66,13 @@ export interface PatientDetail {
   invite_accepted_at: string | null
   created_at: string
   pain_history: CheckIn[]
+  active_restrictions: string[]
+  active_concerns: string[]
+  milestones: string[]
+  pain_trend: PainTrend | null
+  exercise_adherence: number | null
+  needs_review: string[]
+  profile_fields: ProfileField[]
 }
 
 export interface PatientPortalDetail {
@@ -59,6 +81,7 @@ export interface PatientPortalDetail {
   injury: string
   surgery_date: string
   current_phase: string
+  pain_trend: PainTrend | null
 }
 
 export interface PatientIntakeResponse {

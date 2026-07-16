@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     clinic_registration_code: str = "DEV-CLINIC-CODE"
 
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-flash-lite-latest"
 
     invite_token_expire_hours: int = 48
 

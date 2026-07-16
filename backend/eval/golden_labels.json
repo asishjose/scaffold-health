@@ -1,0 +1,42 @@
+{
+  "note_01_mri_report.txt": [
+    { "field_name": "injury", "expected_keywords": ["acl", "anterior cruciate ligament"] }
+  ],
+  "note_02_discharge_summary.txt": [
+    { "field_name": "active_restrictions", "expected_keywords": ["non-weight-bearing", "non weight bearing"] },
+    { "field_name": "active_restrictions", "expected_keywords": ["brace"] }
+  ],
+  "note_03_pt_progress_extension.txt": [
+    { "field_name": "milestones", "expected_keywords": ["full", "extension"] }
+  ],
+  "note_04_concern_swelling.txt": [
+    { "field_name": "active_concerns", "expected_keywords": ["swelling", "swollen", "effusion"] }
+  ],
+  "note_05_referral_note.txt": [
+    { "field_name": "injury", "expected_keywords": ["acl", "anterior cruciate ligament"] },
+    { "field_name": "surgery_date", "expected_keywords": ["2026-03-14"] }
+  ],
+  "note_06_restriction_and_milestone.txt": [
+    { "field_name": "milestones", "expected_keywords": ["single-leg squat", "single leg squat"] },
+    { "field_name": "active_restrictions", "expected_keywords": ["pivoting", "cutting", "contact"] }
+  ],
+  "note_07_discharge_with_date.txt": [
+    { "field_name": "surgery_date", "expected_keywords": ["2026-01-09"] }
+  ],
+  "note_08_no_extractable_facts.txt": [],
+  "note_09_concern_instability.txt": [
+    { "field_name": "active_concerns", "expected_keywords": ["instability", "giving way", "giving-way"] }
+  ],
+  "note_10_multi_field.txt": [
+    { "field_name": "active_concerns", "expected_keywords": ["anterior knee pain", "knee pain"] },
+    { "field_name": "milestones", "expected_keywords": ["120 degrees", "flexion"] },
+    { "field_name": "active_restrictions", "expected_keywords": ["weight-bearing squat", "weight bearing squat"] }
+  ],
+  "note_11_injury_alt_phrasing.txt": [
+    { "field_name": "injury", "expected_keywords": ["acl", "anterior cruciate ligament"] }
+  ],
+  "note_12_weight_bearing_restriction.txt": [
+    { "field_name": "active_restrictions", "expected_keywords": ["toe-touch", "toe touch", "weight-bearing", "weight bearing"] },
+    { "field_name": "active_restrictions", "expected_keywords": ["brace", "extension"] }
+  ]
+}

@@ -1,11 +1,17 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.checkins.models import CheckIn
 from app.documents.models import Document
+from app.patients.events import PHASE_SEQUENCE
 from app.patients.models import Patient
+from app.profile import derived
+from app.profile.models import ProfileField
+
+DISCHARGED_PHASE = PHASE_SEQUENCE[-1]
 
 
 def list_caseload(db: Session, *, therapist_id: uuid.UUID) -> list[Patient]:
@@ -45,3 +51,63 @@ def list_checkins(db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
             .order_by(CheckIn.submitted_at)
         ).scalars()
     )
+
+
+def list_profile_fields(
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
+) -> list[ProfileField]:
+    return list(
+        db.execute(
+            select(ProfileField)
+            .where(
+                ProfileField.patient_id == patient_id, ProfileField.therapist_id == therapist_id
+            )
+            .order_by(ProfileField.extracted_at)
+        ).scalars()
+    )
+
+
+def current_field_values(profile_fields: list[ProfileField], field_name: str) -> list[str]:
+    """Non-superseded values for one field, in extraction order — the
+    accumulated set for an overwrite/append-only field right now.
+    """
+    return [f.value for f in profile_fields if f.field_name == field_name and f.superseded_at is None]
+
+
+def list_needs_review_reasons(
+    db: Session, *, therapist_id: uuid.UUID, patients: list[Patient]
+) -> dict[uuid.UUID, list[str]]:
+    """Typed needs_review reasons for every patient in `patients`, computed
+    with three aggregate queries total rather than one round-trip per
+    patient.
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
+
+    contradiction_patient_ids = set(
+        db.execute(
+            select(ProfileField.patient_id)
+            .where(ProfileField.therapist_id == therapist_id, ProfileField.is_contradiction.is_(True))
+            .distinct()
+        ).scalars()
+    )
+
+    recent_checkin_counts = dict(
+        db.execute(
+            select(CheckIn.patient_id, func.count(CheckIn.id))
+            .join(Patient, Patient.id == CheckIn.patient_id)
+            .where(Patient.therapist_id == therapist_id, CheckIn.submitted_at >= window_start)
+            .group_by(CheckIn.patient_id)
+        ).all()
+    )
+
+    return {
+        patient.id: derived.compute_needs_review_reasons(
+            has_contradiction=patient.id in contradiction_patient_ids,
+            invite_accepted_at=patient.invite_accepted_at,
+            is_discharged=patient.current_phase == DISCHARGED_PHASE,
+            recent_checkin_count=recent_checkin_counts.get(patient.id, 0),
+            now=now,
+        )
+        for patient in patients
+    }

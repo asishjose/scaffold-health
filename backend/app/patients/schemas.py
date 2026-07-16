@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.checkins.schemas import CheckInResponse
+from app.profile.schemas import ProfileFieldResponse
 
 
 class PatientIntakeRequest(BaseModel):
@@ -37,6 +38,7 @@ class PatientListItem(BaseModel):
     current_phase: str
     surgery_date: date
     invite_accepted_at: datetime | None
+    needs_review: list[str] = Field(default_factory=list)
 
 
 class PatientDetailResponse(BaseModel):
@@ -55,6 +57,13 @@ class PatientDetailResponse(BaseModel):
     invite_accepted_at: datetime | None
     created_at: datetime
     pain_history: list[CheckInResponse] = Field(default_factory=list)
+    active_restrictions: list[str] = Field(default_factory=list)
+    active_concerns: list[str] = Field(default_factory=list)
+    milestones: list[str] = Field(default_factory=list)
+    pain_trend: str | None = None
+    exercise_adherence: float | None = None
+    needs_review: list[str] = Field(default_factory=list)
+    profile_fields: list[ProfileFieldResponse] = Field(default_factory=list)
 
 
 class AdvancePhaseRequest(BaseModel):
@@ -79,3 +88,4 @@ class PatientPortalDetailResponse(BaseModel):
     injury: str
     surgery_date: date
     current_phase: str
+    pain_trend: str | None = None

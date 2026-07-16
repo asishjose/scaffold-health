@@ -1,0 +1,310 @@
+{
+  "per_field": {
+    "active_concerns": {
+      "tp": 3,
+      "fp": 4,
+      "fn": 0,
+      "precision": 0.42857142857142855,
+      "recall": 1.0,
+      "f1": 0.6
+    },
+    "active_restrictions": {
+      "tp": 6,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.8571428571428571,
+      "recall": 1.0,
+      "f1": 0.923076923076923
+    },
+    "injury": {
+      "tp": 3,
+      "fp": 2,
+      "fn": 0,
+      "precision": 0.6,
+      "recall": 1.0,
+      "f1": 0.7499999999999999
+    },
+    "milestones": {
+      "tp": 3,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.75,
+      "recall": 1.0,
+      "f1": 0.8571428571428571
+    },
+    "surgery_date": {
+      "tp": 2,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "f1": 0.8
+    }
+  },
+  "overall": {
+    "tp": 17,
+    "fp": 9,
+    "fn": 0,
+    "precision": 0.6538461538461539,
+    "recall": 1.0,
+    "f1": 0.7906976744186047
+  },
+  "notes": [
+    {
+      "note": "note_01_mri_report.txt",
+      "extracted": {
+        "injury": [
+          "Complete full-thickness tear of the anterior cruciate ligament"
+        ]
+      },
+      "counts": {
+        "injury": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_02_discharge_summary.txt",
+      "extracted": {
+        "injury": [
+          "Arthroscopic ACL reconstruction, right knee"
+        ],
+        "active_restrictions": [
+          "Non-weight-bearing on the right lower extremity for the first two weeks",
+          "Hinged knee brace must be worn locked in full extension at all times"
+        ]
+      },
+      "counts": {
+        "active_restrictions": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "injury": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_03_pt_progress_extension.txt",
+      "extracted": {
+        "milestones": [
+          "Achieved full passive knee extension (0 degrees)"
+        ],
+        "active_concerns": [
+          "Gait remains slightly antalgic"
+        ]
+      },
+      "counts": {
+        "milestones": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "active_concerns": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_04_concern_swelling.txt",
+      "extracted": {
+        "active_concerns": [
+          "Persistent joint effusion",
+          "Knee has been more swollen than usual over the past three days"
+        ],
+        "active_restrictions": [
+          "Modify exercise intensity"
+        ]
+      },
+      "counts": {
+        "active_concerns": {
+          "tp": 1,
+          "fp": 1,
+          "fn": 0
+        },
+        "active_restrictions": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_05_referral_note.txt",
+      "extracted": {
+        "injury": [
+          "complete tear of the anterior cruciate ligament, right knee"
+        ],
+        "surgery_date": [
+          "2026-03-14"
+        ]
+      },
+      "counts": {
+        "injury": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "surgery_date": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_06_restriction_and_milestone.txt",
+      "extracted": {
+        "milestones": [
+          "Single-leg squat performed with good control and minimal compensation",
+          "Hop testing limb symmetry index at 88%"
+        ],
+        "active_restrictions": [
+          "Pivoting, cutting, and contact sports remain restricted"
+        ]
+      },
+      "counts": {
+        "milestones": {
+          "tp": 1,
+          "fp": 1,
+          "fn": 0
+        },
+        "active_restrictions": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_07_discharge_with_date.txt",
+      "extracted": {
+        "injury": [
+          "left knee ACL reconstruction with hamstring autograft"
+        ],
+        "surgery_date": [
+          "2026-01-09"
+        ]
+      },
+      "counts": {
+        "surgery_date": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "injury": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_08_no_extractable_facts.txt",
+      "extracted": {},
+      "counts": {}
+    },
+    {
+      "note": "note_09_concern_instability.txt",
+      "extracted": {
+        "active_concerns": [
+          "Patient reports an occasional sensation of the knee giving way when descending stairs",
+          "Patient is guarded during single-leg stance testing on the involved side"
+        ]
+      },
+      "counts": {
+        "active_concerns": {
+          "tp": 1,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_10_multi_field.txt",
+      "extracted": {
+        "milestones": [
+          "Achieved 120 degrees of active knee flexion"
+        ],
+        "active_restrictions": [
+          "Avoid full weight-bearing squats"
+        ],
+        "active_concerns": [
+          "Mild anterior knee pain with kneeling and stair descent"
+        ]
+      },
+      "counts": {
+        "active_concerns": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "milestones": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "active_restrictions": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_11_injury_alt_phrasing.txt",
+      "extracted": {
+        "injury": [
+          "Anterior cruciate ligament rupture, left knee"
+        ],
+        "surgery_date": [
+          "null"
+        ]
+      },
+      "counts": {
+        "injury": {
+          "tp": 1,
+          "fp": 0,
+          "fn": 0
+        },
+        "surgery_date": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    },
+    {
+      "note": "note_12_weight_bearing_restriction.txt",
+      "extracted": {
+        "active_restrictions": [
+          "Strict toe-touch weight-bearing only on the operative leg",
+          "Reinforced brace must remain locked in extension for ambulation"
+        ],
+        "active_concerns": [
+          "Mild swelling"
+        ]
+      },
+      "counts": {
+        "active_restrictions": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 0
+        },
+        "active_concerns": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
+        }
+      }
+    }
+  ],
+  "skipped_notes": []
+}
