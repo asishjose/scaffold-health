@@ -94,3 +94,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
         return CurrentUser(id=uuid.UUID(payload["sub"]), role=payload["role"])
     except (KeyError, ValueError) as exc:
         raise credentials_error from exc
+
+
+def require_role(current_user: CurrentUser, *roles: str) -> None:
+    if current_user.role not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this action"
+        )

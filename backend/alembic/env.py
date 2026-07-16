@@ -10,6 +10,7 @@ from app.core.db import Base
 # autogenerate/upgrade runs. Add new modules here as they're introduced.
 from app.auth import models as auth_models  # noqa: F401
 from app.event_store import models as event_store_models  # noqa: F401
+from app.patients import models as patients_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
