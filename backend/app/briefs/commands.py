@@ -8,12 +8,15 @@ from app.briefs import projector
 from app.briefs.events import BRIEF_GENERATED, STREAM_TYPE_BRIEF
 from app.briefs.models import Brief
 from app.core.llm_client import embed_text, generate_brief_text
-from app.event_store.store import append_event, get_stream_events
-from app.patients.events import PATIENT_PHASE_ADVANCED
+from app.event_store.store import append_event
 from app.patients.models import Patient
 from app.profile import derived
-from app.profile.models import ProfileField
 from app.query_api import therapist as therapist_queries
+from app.timeline.models import (
+    ENTRY_TYPE_DOCUMENT_EXTRACTED,
+    ENTRY_TYPE_MILESTONE,
+    ENTRY_TYPE_PHASE_ADVANCE,
+)
 
 
 class PatientNotFound(Exception):
@@ -45,7 +48,6 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
         db, therapist_id=therapist_id, patient_id=patient_id
     )
     checkins = therapist_queries.list_checkins(db, therapist_id=therapist_id, patient_id=patient_id)
-    documents = therapist_queries.list_documents(db, therapist_id=therapist_id, patient_id=patient_id)
 
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
@@ -62,7 +64,7 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
         flags.append("Pain trend: worsening")
 
     recent_events_summary = _summarize_recent_events(
-        db, patient=patient, profile_fields=profile_fields, documents=documents, since=since
+        db, therapist_id=therapist_id, patient_id=patient_id, since=since
     )
 
     active_restrictions = therapist_queries.current_field_values(profile_fields, "active_restrictions")
@@ -114,37 +116,29 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
 
 
 def _summarize_recent_events(
-    db: Session,
-    *,
-    patient: Patient,
-    profile_fields: list[ProfileField],
-    documents: list,
-    since: datetime,
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID, since: datetime
 ) -> str:
-    """Small ad hoc "recent activity" query directly over the event store
-    and existing read models — a stand-in for the Patient Timeline
-    projector, which doesn't exist yet. Revisit once that projector lands.
+    """"Since last visit" narration sourced from the Patient Timeline
+    projector's read model — the single source of truth for chronological
+    patient events — rather than re-deriving it from the event store.
     """
+    entries = therapist_queries.list_timeline_entries(
+        db, therapist_id=therapist_id, patient_id=patient_id
+    )
+
     lines: list[str] = []
-
-    phase_events = [
-        event
-        for event in get_stream_events(db, stream_id=patient.id)
-        if event.event_type == PATIENT_PHASE_ADVANCED and event.created_at > since
-    ]
-    for event in phase_events:
-        note = f" ({event.payload['note']})" if event.payload.get("note") else ""
-        lines.append(
-            f"Phase advanced from {event.payload['from_phase']} to {event.payload['to_phase']}{note}."
-        )
-
-    for field in profile_fields:
-        if field.extracted_at > since:
-            lines.append(f"New {field.field_name.replace('_', ' ')} noted: {field.value}.")
-
-    for document in documents:
-        if document.extracted_at is not None and document.extracted_at > since:
-            lines.append(f"Document '{document.filename}' processed and extracted.")
+    for entry in entries:
+        if entry.occurred_at <= since:
+            continue
+        if entry.entry_type == ENTRY_TYPE_PHASE_ADVANCE:
+            note = f" ({entry.detail['note']})" if entry.detail.get("note") else ""
+            lines.append(
+                f"Phase advanced from {entry.detail['from_phase']} to {entry.detail['to_phase']}{note}."
+            )
+        elif entry.entry_type == ENTRY_TYPE_MILESTONE:
+            lines.append(f"New milestone noted: {entry.detail['value']}.")
+        elif entry.entry_type == ENTRY_TYPE_DOCUMENT_EXTRACTED:
+            lines.append(f"Document '{entry.detail['filename']}' processed and extracted.")
 
     if not lines:
         return "No new activity recorded since the last visit."
