@@ -11,6 +11,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
+- Frontend: http://localhost:5173 (Vite dev server; proxies `/api/*` to the API)
 - API: http://localhost:8000 (`GET /health`)
 - Postgres: localhost:5433
 - Redis: localhost:6380
@@ -29,4 +30,4 @@ docker compose exec api python -m pytest
 
 ## Status
 
-Milestone 1 (repo scaffold, Docker Compose stack, event-sourced store foundation) is complete. See `docs/PRD.md` §12 for the full Definition of Done this build is working toward.
+Milestones 1–7 are complete: repo scaffold and event-sourced store foundation, auth (therapist signup/login, patient invites), patient intake and caseload, document upload with async text extraction, patient check-ins with forward-only phase progression, the React frontend (auth pages, therapist dashboard/intake/patient detail, patient portal), and LLM fact extraction (Gemini-backed, `backend/app/core/llm_client.py`) with the Knowledge Builder merge engine — per-field overwrite/append-only/immutable-once-set strategies, contradiction detection, and provenance surfaced in the therapist UI (`backend/app/profile/`). A 12-note golden evaluation set (`backend/eval/`) scores extraction at recall 1.00 / precision 0.65 / F1 0.79 per field. Remaining for MVP: Copilot prep briefs, the Patient Assistant, and RAG indexes (needed for briefs). See `docs/PRD.md` §12 for the full Definition of Done.
