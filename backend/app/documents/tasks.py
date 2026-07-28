@@ -2,11 +2,12 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from celery.exceptions import Retry
 from pypdf import PdfReader
 
 from app.core.celery_app import celery_app
 from app.core.db import SessionLocal
-from app.core.llm_client import extract_facts
+from app.core.llm_client import LLMExtractionError, extract_facts
 from app.documents import commands
 from app.documents.models import Document
 from app.patients.models import Patient
@@ -16,14 +17,20 @@ from app.rag import commands as rag_commands
 
 logger = logging.getLogger(__name__)
 
+RETRYABLE_COUNTDOWN_SECONDS = 30
 
-@celery_app.task(name="documents.process_document")
-def process_document(document_id: str) -> None:
+
+@celery_app.task(name="documents.process_document", bind=True, max_retries=3)
+def process_document(self, document_id: str) -> None:
     """Extracts raw text from an uploaded PDF, runs LLM fact extraction over
     it, and merges the results into the patient's Knowledge Profile
     (PRD §5.4). A failure at any step — OCR/text extraction, the LLM call,
     or an invalid response — marks the document "failed"; nothing is
     considered "extracted" until the whole pipeline has succeeded.
+
+    LLM calls can fail transiently (DNS blips, timeouts, rate limits), so
+    LLMExtractionError gets retried with backoff before giving up; other
+    failures (e.g. a corrupt PDF) are permanent and fail immediately.
     """
     db = SessionLocal()
     try:
@@ -33,6 +40,24 @@ def process_document(document_id: str) -> None:
         _run_fact_extraction(db, patient=patient, document=document, text=text)
         _run_rag_indexing(db, patient=patient, document=document, text=text)
         commands.record_extraction_result(db, document_id=document.id, extracted_text=text)
+    except LLMExtractionError as exc:
+        db.rollback()
+        if self.request.retries < self.max_retries:
+            countdown = RETRYABLE_COUNTDOWN_SECONDS * (2**self.request.retries)
+            try:
+                raise self.retry(exc=exc, countdown=countdown)
+            except Retry:
+                # Real retry signal from a worker context — let it propagate
+                # so Celery re-enqueues the task; don't record a failure yet.
+                raise
+            except Exception:
+                # self.retry() re-raises `exc` itself instead of a Retry
+                # when the task is called directly rather than through a
+                # worker (Task.request.called_directly) — e.g. in tests.
+                # There's no broker to re-enqueue against, so fall through
+                # and record it as failed like any other terminal error.
+                pass
+        commands.record_extraction_failure(db, document_id=uuid.UUID(document_id), error=str(exc))
     except Exception as exc:
         db.rollback()
         commands.record_extraction_failure(db, document_id=uuid.UUID(document_id), error=str(exc))
