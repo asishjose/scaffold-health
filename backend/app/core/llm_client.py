@@ -30,6 +30,9 @@ class LLMExtractionError(Exception):
     pass
 
 
+EMBEDDING_DIMENSIONS = 768
+
+
 _EXTRACTION_SYSTEM_INSTRUCTION = """You are a clinical documentation extraction assistant for \
 Scaffold Health, an orthopedic rehab platform. Your only job is to extract structured, \
 explicitly-stated facts from a clinical document (MRI report, discharge summary, or \
@@ -81,6 +84,35 @@ def extract_facts(text: str, schema: list[str]) -> list[ExtractedFact]:
     except ValueError as exc:
         raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
     return [fact for fact in payload.facts if fact.field_name in schema]
+
+
+def embed_text(text: str, *, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
+    """Provider-agnostic embedding call (PRD §6.4). `task_type` defaults to
+    RETRIEVAL_DOCUMENT for indexing; a retrieval-side caller should pass
+    RETRIEVAL_QUERY (Gemini's asymmetric embedding convention).
+    """
+    return _embed(text, task_type=task_type)
+
+
+def _embed(text: str, *, task_type: str) -> list[float]:
+    """Thin seam around the Gemini SDK embedding call, isolated so tests
+    can monkeypatch it without a network call, mirroring `_generate`.
+    """
+    client = _get_client()
+    try:
+        response = client.models.embed_content(
+            model=settings.gemini_embedding_model,
+            contents=text,
+            config=genai_types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=EMBEDDING_DIMENSIONS,
+            ),
+        )
+    except Exception as exc:
+        raise LLMExtractionError(f"Gemini embedding request failed: {exc}") from exc
+    if not response.embeddings:
+        raise LLMExtractionError("Gemini returned no embeddings")
+    return list(response.embeddings[0].values)
 
 
 def _generate(text: str, *, allowed_fields: list[str]) -> str:

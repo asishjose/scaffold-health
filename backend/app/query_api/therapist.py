@@ -10,8 +10,11 @@ from app.patients.events import PHASE_SEQUENCE
 from app.patients.models import Patient
 from app.profile import derived
 from app.profile.models import ProfileField
+from app.rag.events import SCOPE_CLINICAL_GUIDELINES, SCOPE_PATIENT_NOTES
+from app.rag.models import RagChunk
 
 DISCHARGED_PHASE = PHASE_SEQUENCE[-1]
+DEFAULT_RETRIEVAL_LIMIT = 8
 
 
 def list_caseload(db: Session, *, therapist_id: uuid.UUID) -> list[Patient]:
@@ -72,6 +75,48 @@ def current_field_values(profile_fields: list[ProfileField], field_name: str) ->
     accumulated set for an overwrite/append-only field right now.
     """
     return [f.value for f in profile_fields if f.field_name == field_name and f.superseded_at is None]
+
+
+def retrieve_patient_notes_chunks(
+    db: Session,
+    *,
+    therapist_id: uuid.UUID,
+    patient_id: uuid.UUID,
+    query_embedding: list[float],
+    limit: int = DEFAULT_RETRIEVAL_LIMIT,
+) -> list[RagChunk]:
+    """Nearest-neighbor retrieval over one patient's document/note residual
+    text, hard-scoped by both patient_id and therapist_id in the query
+    itself (PRD §10) — never post-filtered.
+    """
+    return list(
+        db.execute(
+            select(RagChunk)
+            .where(
+                RagChunk.scope == SCOPE_PATIENT_NOTES,
+                RagChunk.patient_id == patient_id,
+                RagChunk.therapist_id == therapist_id,
+            )
+            .order_by(RagChunk.embedding.cosine_distance(query_embedding))
+            .limit(limit)
+        ).scalars()
+    )
+
+
+def retrieve_clinical_guideline_chunks(
+    db: Session, *, query_embedding: list[float], limit: int = DEFAULT_RETRIEVAL_LIMIT
+) -> list[RagChunk]:
+    """Nearest-neighbor retrieval over the shared clinical-guideline corpus
+    (Copilot-only, PRD §6.4).
+    """
+    return list(
+        db.execute(
+            select(RagChunk)
+            .where(RagChunk.scope == SCOPE_CLINICAL_GUIDELINES)
+            .order_by(RagChunk.embedding.cosine_distance(query_embedding))
+            .limit(limit)
+        ).scalars()
+    )
 
 
 def list_needs_review_reasons(

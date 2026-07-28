@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-flash-lite-latest"
+    gemini_embedding_model: str = "gemini-embedding-001"
 
     invite_token_expire_hours: int = 48
 
