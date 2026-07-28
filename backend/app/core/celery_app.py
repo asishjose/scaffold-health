@@ -16,6 +16,7 @@ from app.documents import models as documents_models  # noqa: E402,F401
 from app.event_store import models as event_store_models  # noqa: E402,F401
 from app.patients import models as patients_models  # noqa: E402,F401
 from app.profile import models as profile_models  # noqa: E402,F401
+from app.rag import models as rag_models  # noqa: E402,F401
 
 # Imported after celery_app is defined, since each tasks module does
 # `from app.core.celery_app import celery_app` to register its tasks.
