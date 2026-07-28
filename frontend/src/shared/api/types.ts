@@ -106,3 +106,12 @@ export interface DocumentListItem {
   created_at: string
   extracted_at: string | null
 }
+
+export interface Brief {
+  id: string
+  patient_id: string
+  since_last_visit: string
+  flags: string[]
+  suggested_focus: string
+  generated_at: string
+}

@@ -26,6 +26,11 @@ class _ExtractedFactsPayload(BaseModel):
     facts: list[ExtractedFact]
 
 
+class BriefSections(BaseModel):
+    since_last_visit: str
+    suggested_focus: str
+
+
 class LLMExtractionError(Exception):
     pass
 
@@ -53,6 +58,25 @@ Rules:
 - Every fact must include the exact source_quote — a verbatim span copied from the text that supports it.
 - Assign confidence between 0 and 1 reflecting how directly and unambiguously the text supports the fact.
 - If nothing in the text matches a recognized field, return an empty facts list."""
+
+_BRIEF_SYSTEM_INSTRUCTION = """You are an appointment-prep assistant for a therapist at Scaffold \
+Health, an orthopedic rehab platform, preparing for an upcoming visit with a patient recovering \
+from ACL reconstruction surgery. This system is advisory-only: you never diagnose, recommend \
+treatment, or make clinical decisions — you only summarize what has already been documented and \
+suggest discussion topics grounded in that documentation.
+
+You will be given the patient's current Knowledge Profile, a list of already-flagged review \
+reasons, a summary of clinically relevant events since the last prep brief (or since intake, if \
+this is the first brief), and relevant excerpts from the patient's own notes/documents.
+
+Produce exactly two sections as JSON:
+- since_last_visit: a concise narrative summary (2-4 sentences) of what has changed or happened \
+since the last visit, grounded only in the provided events and profile — never invent events.
+- suggested_focus: 2-4 concrete, non-diagnostic discussion points or things to check on during \
+the upcoming visit, grounded in the flags, profile, and note excerpts provided.
+
+If no meaningful activity occurred since the last visit, say so plainly in since_last_visit \
+rather than fabricating detail."""
 
 _client: "genai.Client | None" = None
 
@@ -84,6 +108,29 @@ def extract_facts(text: str, schema: list[str]) -> list[ExtractedFact]:
     except ValueError as exc:
         raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
     return [fact for fact in payload.facts if fact.field_name in schema]
+
+
+def generate_brief_text(
+    *,
+    profile_summary: str,
+    flags: list[str],
+    recent_events_summary: str,
+    note_excerpts: list[str],
+) -> BriefSections:
+    """One structured-output LLM call narrating a therapist prep brief from
+    already-computed inputs (PRD §9) — the LLM only narrates and suggests
+    discussion points; it never decides flags or clinical facts itself.
+    """
+    raw = _generate_brief(
+        profile_summary=profile_summary,
+        flags=flags,
+        recent_events_summary=recent_events_summary,
+        note_excerpts=note_excerpts,
+    )
+    try:
+        return BriefSections.model_validate_json(raw)
+    except ValueError as exc:
+        raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
 
 
 def embed_text(text: str, *, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
@@ -131,6 +178,42 @@ def _generate(text: str, *, allowed_fields: list[str]) -> str:
                 ),
                 response_mime_type="application/json",
                 response_schema=_ExtractedFactsPayload,
+            ),
+        )
+    except Exception as exc:
+        raise LLMExtractionError(f"Gemini request failed: {exc}") from exc
+    if not response.text:
+        raise LLMExtractionError("Gemini returned an empty response")
+    return response.text
+
+
+def _generate_brief(
+    *,
+    profile_summary: str,
+    flags: list[str],
+    recent_events_summary: str,
+    note_excerpts: list[str],
+) -> str:
+    """Thin seam around the Gemini SDK call, isolated so tests can
+    monkeypatch it and exercise generate_brief_text's parsing logic without
+    a network call, mirroring `_generate`.
+    """
+    client = _get_client()
+    excerpts_block = "\n---\n".join(note_excerpts) if note_excerpts else "none"
+    prompt = (
+        f"Knowledge Profile:\n{profile_summary}\n\n"
+        f"Flagged review reasons: {', '.join(flags) if flags else 'none'}\n\n"
+        f"Events since last visit:\n{recent_events_summary}\n\n"
+        f"Relevant note excerpts:\n{excerpts_block}"
+    )
+    try:
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=_BRIEF_SYSTEM_INSTRUCTION,
+                response_mime_type="application/json",
+                response_schema=BriefSections,
             ),
         )
     except Exception as exc:
