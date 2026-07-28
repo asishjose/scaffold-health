@@ -15,6 +15,7 @@ from app.documents.events import (
 from app.documents.models import Document
 from app.event_store.store import append_event
 from app.patients.models import Patient
+from app.timeline import projector as timeline_projector
 
 PDF_MAGIC_BYTES = b"%PDF-"
 
@@ -90,6 +91,7 @@ def record_extraction_result(
         payload={"extracted_text": extracted_text},
     )
     document = projector.apply(db, event)
+    timeline_projector.apply(db, event)
     db.commit()
     return document
 
