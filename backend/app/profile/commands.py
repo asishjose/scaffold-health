@@ -18,6 +18,7 @@ from app.profile.events import (
     STRATEGY_IMMUTABLE_ONCE_SET,
 )
 from app.profile.models import ProfileField
+from app.timeline import projector as timeline_projector
 
 EXTRACTOR_VERSION = "gemini-fact-extraction-v1"
 
@@ -72,6 +73,7 @@ def merge_extracted_facts(
             },
         )
         written.extend(projector.apply(db, event))
+        timeline_projector.apply(db, event)
 
     db.commit()
     return written

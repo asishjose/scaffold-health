@@ -7,6 +7,7 @@ from app.checkins.models import CheckIn
 from app.patients.models import Patient
 from app.rag.events import SCOPE_PATIENT_EDUCATION
 from app.rag.models import RagChunk
+from app.timeline.models import TimelineEntry
 
 DEFAULT_RETRIEVAL_LIMIT = 8
 
@@ -21,6 +22,16 @@ def list_own_checkins(db: Session, *, patient_id: uuid.UUID) -> list[CheckIn]:
             select(CheckIn)
             .where(CheckIn.patient_id == patient_id)
             .order_by(CheckIn.submitted_at)
+        ).scalars()
+    )
+
+
+def list_own_timeline_entries(db: Session, *, patient_id: uuid.UUID) -> list[TimelineEntry]:
+    return list(
+        db.execute(
+            select(TimelineEntry)
+            .where(TimelineEntry.patient_id == patient_id)
+            .order_by(TimelineEntry.occurred_at)
         ).scalars()
     )
 

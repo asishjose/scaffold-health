@@ -106,3 +106,40 @@ export interface DocumentListItem {
   created_at: string
   extracted_at: string | null
 }
+
+export interface Brief {
+  id: string
+  patient_id: string
+  since_last_visit: string
+  flags: string[]
+  suggested_focus: string
+  generated_at: string
+}
+
+export type TimelineEntryType = 'phase_advance' | 'milestone' | 'document_extracted'
+
+export interface TimelineEntry {
+  id: string
+  entry_type: TimelineEntryType
+  occurred_at: string
+  from_phase: string | null
+  to_phase: string | null
+  note: string | null
+  value: string | null
+  confidence: number | null
+  source_quote: string | null
+  source_document_id: string | null
+  filename: string | null
+  document_id: string | null
+}
+
+export interface TimelinePortalEntry {
+  id: string
+  entry_type: TimelineEntryType
+  occurred_at: string
+  from_phase: string | null
+  to_phase: string | null
+  note: string | null
+  value: string | null
+  filename: string | null
+}

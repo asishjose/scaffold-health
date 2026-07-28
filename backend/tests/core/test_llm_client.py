@@ -1,7 +1,7 @@
 import pytest
 
 from app.core import llm_client
-from app.core.llm_client import LLMExtractionError, embed_text, extract_facts
+from app.core.llm_client import LLMExtractionError, embed_text, extract_facts, generate_brief_text
 
 
 def test_extract_facts_parses_valid_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,6 +52,38 @@ def test_extract_facts_raises_when_api_key_missing(monkeypatch: pytest.MonkeyPat
 
     with pytest.raises(LLMExtractionError, match="GEMINI_API_KEY"):
         extract_facts("text", schema=["milestones"])
+
+
+def test_generate_brief_text_parses_valid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        llm_client,
+        "_generate_brief",
+        lambda **kwargs: (
+            '{"since_last_visit": "No new activity.", "suggested_focus": "Ask about pain."}'
+        ),
+    )
+
+    sections = generate_brief_text(
+        profile_summary="Injury: acl_reconstruction",
+        flags=[],
+        recent_events_summary="No new activity recorded since the last visit.",
+        note_excerpts=[],
+    )
+
+    assert sections.since_last_visit == "No new activity."
+    assert sections.suggested_focus == "Ask about pain."
+
+
+def test_generate_brief_text_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(llm_client, "_generate_brief", lambda **kwargs: "not json")
+
+    with pytest.raises(LLMExtractionError):
+        generate_brief_text(
+            profile_summary="Injury: acl_reconstruction",
+            flags=[],
+            recent_events_summary="",
+            note_excerpts=[],
+        )
 
 
 def test_embed_text_returns_vector(monkeypatch: pytest.MonkeyPatch) -> None:

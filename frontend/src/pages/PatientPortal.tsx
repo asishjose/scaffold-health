@@ -2,6 +2,7 @@ import { CheckCircle2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
 import type { PatientPortalDetail } from '@/shared/api/types'
+import { PatientTimelinePanel } from '@/shared/components/PatientTimelinePanel'
 import { useSubmitCheckIn } from '@/shared/hooks/useCheckIn'
 import { usePortalProfile } from '@/shared/hooks/usePatients'
 import { formatDate, injuryLabel, weeksPostOpLabel } from '@/shared/lib/utils'
@@ -127,6 +128,7 @@ export function PatientPortal() {
     <div className="mx-auto max-w-xl space-y-6">
       <h1 className="text-2xl font-semibold">Hi, {profile.data.name.split(' ')[0]}</h1>
       <ProfileCard profile={profile.data} />
+      <PatientTimelinePanel patientId={profile.data.id} variant="patient" />
       <CheckInForm patientId={profile.data.id} />
     </div>
   )
