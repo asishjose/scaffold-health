@@ -9,6 +9,7 @@ from app.core.db import Base
 # Import every models module so its tables register on Base.metadata before
 # autogenerate/upgrade runs. Add new modules here as they're introduced.
 from app.auth import models as auth_models  # noqa: F401
+from app.briefs import models as briefs_models  # noqa: F401
 from app.checkins import models as checkins_models  # noqa: F401
 from app.documents import models as documents_models  # noqa: F401
 from app.event_store import models as event_store_models  # noqa: F401

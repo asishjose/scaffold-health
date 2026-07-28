@@ -1,10 +1,11 @@
-import { ArrowLeft, FileText, Loader2, Upload } from 'lucide-react'
+import { ArrowLeft, FileText, Loader2, Sparkles, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ApiError } from '@/shared/api/client'
 import type { PatientDetail as PatientDetailType } from '@/shared/api/types'
 import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
+import { useGenerateBrief } from '@/shared/hooks/useBrief'
 import { useDocuments, useUploadDocument } from '@/shared/hooks/useDocuments'
 import { useAdvancePhase, usePatient } from '@/shared/hooks/usePatients'
 import { cn, formatDate, formatDateTime, injuryLabel, weeksPostOpLabel } from '@/shared/lib/utils'
@@ -399,6 +400,76 @@ function PainHistoryPanel({ patient }: { patient: PatientDetailType }) {
   )
 }
 
+function PrepBriefPanel({ patientId }: { patientId: string }) {
+  const generateBrief = useGenerateBrief(patientId)
+  const brief = generateBrief.data
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Prep brief</CardTitle>
+        <CardDescription>
+          Assembled from the Knowledge Profile, recent activity, and the patient's notes.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Button
+          type="button"
+          onClick={() => generateBrief.mutate()}
+          disabled={generateBrief.isPending}
+        >
+          {generateBrief.isPending ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="mr-1 h-4 w-4" />
+          )}
+          {generateBrief.isPending
+            ? 'Generating…'
+            : brief
+              ? 'Regenerate brief'
+              : 'Generate brief'}
+        </Button>
+
+        {generateBrief.isError && (
+          <p className="text-sm text-destructive">
+            Failed to generate the brief. Please try again.
+          </p>
+        )}
+
+        {brief && (
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Generated {formatDateTime(brief.generated_at)}
+            </p>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Since last visit
+              </p>
+              <p className="mt-1 text-sm">{brief.since_last_visit}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Flags</p>
+              {brief.flags.length === 0 ? (
+                <p className="mt-1 text-sm text-muted-foreground">None.</p>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <NeedsReviewBadges reasons={brief.flags} />
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Suggested focus
+              </p>
+              <p className="mt-1 text-sm">{brief.suggested_focus}</p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function PatientDetail() {
   const { id = '' } = useParams()
   const patient = usePatient(id)
@@ -450,6 +521,7 @@ export function PatientDetail() {
           <PhaseAdvanceControl patient={data} />
         </div>
         <div className="space-y-6">
+          <PrepBriefPanel patientId={data.id} />
           <PainHistoryPanel patient={data} />
           <ProvenancePanel patient={data} />
         </div>
