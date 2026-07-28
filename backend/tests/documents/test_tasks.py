@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from io import BytesIO
 
 import pytest
+from celery.exceptions import Retry
 from pypdf import PdfWriter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -198,6 +199,90 @@ def test_process_document_marks_failed_when_fact_extraction_fails(
     monkeypatch.setattr(document_tasks, "extract_facts", _raise)
 
     process_document(str(document.id))
+
+    verify_session = SessionLocal()
+    try:
+        refreshed = verify_session.get(Document, document.id)
+        assert refreshed.status == "failed"
+        assert "Gemini request failed" in refreshed.error
+    finally:
+        verify_session.close()
+
+
+def test_process_document_retries_transient_llm_failure_without_marking_failed(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_pdf_bytes_with_text("Patient reports mild anterior knee pain."),
+    )
+
+    def _raise(text: str, schema: list[str]) -> list[ExtractedFact]:
+        raise LLMExtractionError("Gemini request failed: [Errno -5] No address associated with hostname")
+
+    monkeypatch.setattr(document_tasks, "extract_facts", _raise)
+
+    retry_calls = []
+
+    def _fake_retry(exc=None, countdown=None, **kwargs):
+        # Stands in for a real worker context, where retry() raises Retry
+        # (rather than re-raising exc, as it does when called_directly).
+        retry_calls.append((exc, countdown))
+        raise Retry(exc=exc)
+
+    monkeypatch.setattr(process_document, "retry", _fake_retry)
+
+    with pytest.raises(Retry):
+        process_document(str(document.id))
+
+    assert len(retry_calls) == 1
+    assert isinstance(retry_calls[0][0], LLMExtractionError)
+    assert retry_calls[0][1] == document_tasks.RETRYABLE_COUNTDOWN_SECONDS
+
+    verify_session = SessionLocal()
+    try:
+        refreshed = verify_session.get(Document, document.id)
+        # A retry was scheduled, not a terminal failure — status/error
+        # must be untouched so a later successful attempt isn't shadowed.
+        assert refreshed.status == "processing"
+        assert refreshed.error is None
+    finally:
+        verify_session.close()
+
+
+def test_process_document_marks_failed_when_llm_retries_exhausted(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_pdf_bytes_with_text("Patient reports mild anterior knee pain."),
+    )
+
+    def _raise(text: str, schema: list[str]) -> list[ExtractedFact]:
+        raise LLMExtractionError("Gemini request failed")
+
+    monkeypatch.setattr(document_tasks, "extract_facts", _raise)
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("retry() should not be attempted once max_retries is reached")
+
+    monkeypatch.setattr(process_document, "retry", _fail_if_called)
+
+    process_document.push_request(retries=process_document.max_retries)
+    try:
+        process_document(str(document.id))
+    finally:
+        process_document.pop_request()
 
     verify_session = SessionLocal()
     try:
