@@ -20,6 +20,7 @@ from app.patients.events import (
     STREAM_TYPE_PATIENT,
 )
 from app.patients.models import Patient
+from app.timeline import projector as timeline_projector
 
 
 class TherapistNotFound(Exception):
@@ -130,6 +131,7 @@ def advance_phase(
         actor_role="therapist",
     )
     patient = projector.apply(db, event)
+    timeline_projector.apply(db, event)
     db.commit()
 
     return patient

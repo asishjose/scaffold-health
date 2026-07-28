@@ -12,6 +12,7 @@ from app.profile import derived
 from app.profile.models import ProfileField
 from app.rag.events import SCOPE_CLINICAL_GUIDELINES, SCOPE_PATIENT_NOTES
 from app.rag.models import RagChunk
+from app.timeline.models import TimelineEntry
 
 DISCHARGED_PHASE = PHASE_SEQUENCE[-1]
 DEFAULT_RETRIEVAL_LIMIT = 8
@@ -52,6 +53,21 @@ def list_checkins(db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
             .join(Patient, Patient.id == CheckIn.patient_id)
             .where(CheckIn.patient_id == patient_id, Patient.therapist_id == therapist_id)
             .order_by(CheckIn.submitted_at)
+        ).scalars()
+    )
+
+
+def list_timeline_entries(
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
+) -> list[TimelineEntry]:
+    return list(
+        db.execute(
+            select(TimelineEntry)
+            .where(
+                TimelineEntry.patient_id == patient_id,
+                TimelineEntry.therapist_id == therapist_id,
+            )
+            .order_by(TimelineEntry.occurred_at)
         ).scalars()
     )
 

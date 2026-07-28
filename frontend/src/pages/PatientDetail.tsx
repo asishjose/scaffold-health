@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '@/shared/api/client'
 import type { PatientDetail as PatientDetailType } from '@/shared/api/types'
 import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
+import { PatientTimelinePanel } from '@/shared/components/PatientTimelinePanel'
 import { useGenerateBrief } from '@/shared/hooks/useBrief'
 import { useDocuments, useUploadDocument } from '@/shared/hooks/useDocuments'
 import { useAdvancePhase, usePatient } from '@/shared/hooks/usePatients'
@@ -523,6 +524,7 @@ export function PatientDetail() {
         <div className="space-y-6">
           <PrepBriefPanel patientId={data.id} />
           <PainHistoryPanel patient={data} />
+          <PatientTimelinePanel patientId={data.id} variant="therapist" />
           <ProvenancePanel patient={data} />
         </div>
       </div>
