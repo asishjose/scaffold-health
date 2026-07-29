@@ -21,3 +21,4 @@ dist/
 
 # Uploaded documents (local dev storage volume)
 backend/storage/
+backend/data/

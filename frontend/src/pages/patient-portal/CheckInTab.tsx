@@ -1,50 +1,17 @@
 import { CheckCircle2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { useOutletContext } from 'react-router-dom'
 
 import type { PatientPortalDetail } from '@/shared/api/types'
-import { PatientTimelinePanel } from '@/shared/components/PatientTimelinePanel'
 import { useSubmitCheckIn } from '@/shared/hooks/useCheckIn'
-import { usePortalProfile } from '@/shared/hooks/usePatients'
-import { formatDate, injuryLabel, weeksPostOpLabel } from '@/shared/lib/utils'
-import { phaseLabel } from '@/shared/phases'
-import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 import { Label } from '@/shared/ui/label'
 import { Textarea } from '@/shared/ui/textarea'
 
-const PAIN_TREND_COPY: Record<string, string> = {
-  improving: 'Your reported pain has been trending down recently.',
-  worsening: 'Your reported pain has been trending up recently.',
-  stable: 'Your reported pain has been holding steady recently.',
-}
-
-function ProfileCard({ profile }: { profile: PatientPortalDetail }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Your recovery</CardTitle>
-        <CardDescription>
-          {injuryLabel(profile.injury)} · surgery on {formatDate(profile.surgery_date)}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge className="text-sm">{phaseLabel(profile.current_phase)}</Badge>
-          <span className="text-sm text-muted-foreground">
-            {weeksPostOpLabel(profile.surgery_date)}
-          </span>
-        </div>
-        {profile.pain_trend && (
-          <p className="text-sm text-muted-foreground">{PAIN_TREND_COPY[profile.pain_trend]}</p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function CheckInForm({ patientId }: { patientId: string }) {
-  const checkIn = useSubmitCheckIn(patientId)
+export function CheckInTab() {
+  const profile = useOutletContext<PatientPortalDetail>()
+  const checkIn = useSubmitCheckIn(profile.id)
   const [painLevel, setPainLevel] = useState(3)
   const [note, setNote] = useState('')
 
@@ -111,25 +78,5 @@ function CheckInForm({ patientId }: { patientId: string }) {
         </form>
       </CardContent>
     </Card>
-  )
-}
-
-export function PatientPortal() {
-  const profile = usePortalProfile()
-
-  if (profile.isPending) {
-    return <p className="text-sm text-muted-foreground">Loading your recovery profile…</p>
-  }
-  if (profile.isError) {
-    return <p className="text-sm text-destructive">Failed to load your profile. Try refreshing.</p>
-  }
-
-  return (
-    <div className="mx-auto max-w-xl space-y-6">
-      <h1 className="text-2xl font-semibold">Hi, {profile.data.name.split(' ')[0]}</h1>
-      <ProfileCard profile={profile.data} />
-      <PatientTimelinePanel patientId={profile.data.id} variant="patient" />
-      <CheckInForm patientId={profile.data.id} />
-    </div>
   )
 }

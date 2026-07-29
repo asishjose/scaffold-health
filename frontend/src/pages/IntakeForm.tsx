@@ -42,7 +42,7 @@ function InviteLinkPanel({ result }: { result: PatientIntakeResponse }) {
           <Link to={`/patients/${result.id}`} className={buttonVariants({ variant: 'secondary' })}>
             Open patient record
           </Link>
-          <Link to="/dashboard" className={buttonVariants({ variant: 'ghost' })}>
+          <Link to="/caseload" className={buttonVariants({ variant: 'ghost' })}>
             Back to caseload
           </Link>
         </div>
@@ -137,7 +137,7 @@ export function IntakeForm() {
               <Button type="submit" disabled={createPatient.isPending}>
                 {createPatient.isPending ? 'Creating…' : 'Create patient & invite'}
               </Button>
-              <Link to="/dashboard" className={buttonVariants({ variant: 'ghost' })}>
+              <Link to="/caseload" className={buttonVariants({ variant: 'ghost' })}>
                 Cancel
               </Link>
             </div>

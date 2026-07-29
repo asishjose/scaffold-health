@@ -9,7 +9,7 @@ import { Badge } from '@/shared/ui/badge'
 import { buttonVariants } from '@/shared/ui/button'
 import { Card, CardContent } from '@/shared/ui/card'
 
-export function PatientList() {
+export function Caseload() {
   const patients = usePatients()
 
   return (
