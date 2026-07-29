@@ -143,3 +143,12 @@ export interface TimelinePortalEntry {
   value: string | null
   filename: string | null
 }
+
+export interface AssistantAnswer {
+  id: string
+  patient_id: string
+  question: string
+  answer: string
+  redirected: boolean
+  asked_at: string
+}

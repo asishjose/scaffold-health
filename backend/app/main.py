@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.assistant.router import router as assistant_router
 from app.auth.router import router as auth_router
 from app.briefs.router import router as briefs_router
 from app.checkins.router import router as checkins_router
@@ -15,6 +16,7 @@ app.include_router(documents_router)
 app.include_router(checkins_router)
 app.include_router(briefs_router)
 app.include_router(timeline_router)
+app.include_router(assistant_router)
 
 
 @app.get("/health")

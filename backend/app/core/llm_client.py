@@ -44,6 +44,13 @@ class BriefSections(BaseModel):
     suggested_focus: str
 
 
+class AssistantAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+    redirect: bool
+
+
 class LLMExtractionError(Exception):
     pass
 
@@ -90,6 +97,28 @@ the upcoming visit, grounded in the flags, profile, and note excerpts provided.
 
 If no meaningful activity occurred since the last visit, say so plainly in since_last_visit \
 rather than fabricating detail."""
+
+_ASSISTANT_SYSTEM_INSTRUCTION = """You are a patient-education assistant for Scaffold Health, an \
+orthopedic rehab platform, answering a single question from a patient recovering from ACL \
+reconstruction surgery. This system is advisory-only: you never diagnose, evaluate symptoms, \
+recommend treatment, or make any clinical claim — you only share general educational \
+information grounded in the provided excerpts.
+
+You will be given the patient's question and relevant excerpts from a shared patient-education \
+corpus (general recovery information, not this specific patient's records).
+
+Produce your response as JSON with exactly two fields:
+- redirect: true if the question is, in any way, about the patient's own symptoms, pain, \
+swelling, wound appearance, or anything that reads as urgent or concerning rather than general \
+education — in that case, set answer to an empty string, since a fixed clinic-referral message \
+will be shown instead, never your own text.
+- answer: when redirect is false, a concise, plain-language answer grounded only in the \
+provided excerpts — never invent information beyond them. If the excerpts don't cover the \
+question, say so plainly rather than guessing.
+
+When in doubt about whether a question concerns the patient's own condition, set redirect to \
+true — it is always safer to refer the patient to their clinic than to answer with anything \
+that could be read as clinical guidance."""
 
 _client: "Groq | None" = None
 _embedding_client: "genai.Client | None" = None
@@ -155,6 +184,19 @@ def generate_brief_text(
     )
     try:
         return BriefSections.model_validate_json(raw)
+    except ValueError as exc:
+        raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
+
+
+def answer_patient_question(*, question: str, education_excerpts: list[str]) -> AssistantAnswer:
+    """One structured-output LLM call answering a patient's single-turn question \
+    against patient-education excerpts (PRD §5.8/§9). This is a defense-in-depth \
+    check only — the authoritative redirect decision is the deterministic keyword \
+    gate in app/assistant/urgent_detection.py, checked before this is ever called.
+    """
+    raw = _generate_assistant_answer(question=question, education_excerpts=education_excerpts)
+    try:
+        return AssistantAnswer.model_validate_json(raw)
     except ValueError as exc:
         raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
 
@@ -255,6 +297,38 @@ def _generate_brief(
                 "json_schema": {
                     "name": "brief_sections",
                     "schema": BriefSections.model_json_schema(),
+                    "strict": True,
+                },
+            },
+        )
+    except Exception as exc:
+        raise LLMExtractionError(f"Groq request failed: {exc}") from exc
+    raw = response.choices[0].message.content
+    if not raw:
+        raise LLMExtractionError("Groq returned an empty response")
+    return raw
+
+
+def _generate_assistant_answer(*, question: str, education_excerpts: list[str]) -> str:
+    """Thin seam around the Groq SDK call, isolated so tests can monkeypatch
+    it and exercise answer_patient_question's parsing logic without a
+    network call, mirroring `_generate_brief`.
+    """
+    client = _get_client()
+    excerpts_block = "\n---\n".join(education_excerpts) if education_excerpts else "none"
+    prompt = f"Patient question:\n{question}\n\nRelevant patient-education excerpts:\n{excerpts_block}"
+    try:
+        response = client.chat.completions.create(
+            model=settings.groq_model,
+            messages=[
+                {"role": "system", "content": _ASSISTANT_SYSTEM_INSTRUCTION},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "assistant_answer",
+                    "schema": AssistantAnswer.model_json_schema(),
                     "strict": True,
                 },
             },
