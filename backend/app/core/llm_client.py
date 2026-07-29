@@ -1,11 +1,18 @@
-"""Provider-agnostic LLM interface (PRD §9). Gemini is the only
-implementation for MVP; callers depend only on `extract_facts`, never on
-Gemini-specific types, so swapping providers later touches only this file.
+"""Provider-agnostic LLM interface (PRD §9). Groq handles fact extraction
+and brief generation; Gemini fills the one gap Groq's API doesn't cover
+(embeddings). Callers depend only on `extract_facts` / `generate_brief_text`
+/ `embed_text`, never on provider-specific types, so changing either
+provider later touches only this file.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
+
+try:
+    from groq import Groq
+except ImportError:  # pragma: no cover - dependency always installed via requirements.txt
+    Groq = None
 
 try:
     from google import genai
@@ -16,6 +23,8 @@ except ImportError:  # pragma: no cover - dependency always installed via requir
 
 
 class ExtractedFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     field_name: str
     value: str
     confidence: float = Field(ge=0, le=1)
@@ -23,10 +32,14 @@ class ExtractedFact(BaseModel):
 
 
 class _ExtractedFactsPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     facts: list[ExtractedFact]
 
 
 class BriefSections(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     since_last_visit: str
     suggested_focus: str
 
@@ -78,22 +91,35 @@ the upcoming visit, grounded in the flags, profile, and note excerpts provided.
 If no meaningful activity occurred since the last visit, say so plainly in since_last_visit \
 rather than fabricating detail."""
 
-_client: "genai.Client | None" = None
+_client: "Groq | None" = None
+_embedding_client: "genai.Client | None" = None
 
 
-def _get_client() -> "genai.Client":
+def _get_client() -> "Groq":
     global _client
     if _client is not None:
         return _client
+    if not settings.groq_api_key:
+        raise LLMExtractionError("GROQ_API_KEY is not configured")
+    if Groq is None:
+        raise LLMExtractionError("groq package is not installed")
+    _client = Groq(api_key=settings.groq_api_key, timeout=60.0)
+    return _client
+
+
+def _get_embedding_client() -> "genai.Client":
+    global _embedding_client
+    if _embedding_client is not None:
+        return _embedding_client
     if not settings.gemini_api_key:
         raise LLMExtractionError("GEMINI_API_KEY is not configured")
     if genai is None:
         raise LLMExtractionError("google-genai package is not installed")
-    _client = genai.Client(
+    _embedding_client = genai.Client(
         api_key=settings.gemini_api_key,
         http_options=genai_types.HttpOptions(timeout=60_000),
     )
-    return _client
+    return _embedding_client
 
 
 def extract_facts(text: str, schema: list[str]) -> list[ExtractedFact]:
@@ -136,7 +162,8 @@ def generate_brief_text(
 def embed_text(text: str, *, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
     """Provider-agnostic embedding call (PRD §6.4). `task_type` defaults to
     RETRIEVAL_DOCUMENT for indexing; a retrieval-side caller should pass
-    RETRIEVAL_QUERY (Gemini's asymmetric embedding convention).
+    RETRIEVAL_QUERY (Gemini's asymmetric embedding convention — Gemini is
+    the embeddings provider here since Groq has no embeddings API).
     """
     return _embed(text, task_type=task_type)
 
@@ -145,7 +172,7 @@ def _embed(text: str, *, task_type: str) -> list[float]:
     """Thin seam around the Gemini SDK embedding call, isolated so tests
     can monkeypatch it without a network call, mirroring `_generate`.
     """
-    client = _get_client()
+    client = _get_embedding_client()
     try:
         response = client.models.embed_content(
             model=settings.gemini_embedding_model,
@@ -163,28 +190,38 @@ def _embed(text: str, *, task_type: str) -> list[float]:
 
 
 def _generate(text: str, *, allowed_fields: list[str]) -> str:
-    """Thin seam around the Gemini SDK call, isolated so tests can
+    """Thin seam around the Groq SDK call, isolated so tests can
     monkeypatch it and exercise extract_facts's parsing/filtering logic
     without a network call.
     """
     client = _get_client()
     try:
-        response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=text,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=_EXTRACTION_SYSTEM_INSTRUCTION.format(
-                    fields=", ".join(allowed_fields)
-                ),
-                response_mime_type="application/json",
-                response_schema=_ExtractedFactsPayload,
-            ),
+        response = client.chat.completions.create(
+            model=settings.groq_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": _EXTRACTION_SYSTEM_INSTRUCTION.format(
+                        fields=", ".join(allowed_fields)
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "extracted_facts",
+                    "schema": _ExtractedFactsPayload.model_json_schema(),
+                    "strict": True,
+                },
+            },
         )
     except Exception as exc:
-        raise LLMExtractionError(f"Gemini request failed: {exc}") from exc
-    if not response.text:
-        raise LLMExtractionError("Gemini returned an empty response")
-    return response.text
+        raise LLMExtractionError(f"Groq request failed: {exc}") from exc
+    raw = response.choices[0].message.content
+    if not raw:
+        raise LLMExtractionError("Groq returned an empty response")
+    return raw
 
 
 def _generate_brief(
@@ -194,7 +231,7 @@ def _generate_brief(
     recent_events_summary: str,
     note_excerpts: list[str],
 ) -> str:
-    """Thin seam around the Gemini SDK call, isolated so tests can
+    """Thin seam around the Groq SDK call, isolated so tests can
     monkeypatch it and exercise generate_brief_text's parsing logic without
     a network call, mirroring `_generate`.
     """
@@ -207,17 +244,24 @@ def _generate_brief(
         f"Relevant note excerpts:\n{excerpts_block}"
     )
     try:
-        response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=_BRIEF_SYSTEM_INSTRUCTION,
-                response_mime_type="application/json",
-                response_schema=BriefSections,
-            ),
+        response = client.chat.completions.create(
+            model=settings.groq_model,
+            messages=[
+                {"role": "system", "content": _BRIEF_SYSTEM_INSTRUCTION},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "brief_sections",
+                    "schema": BriefSections.model_json_schema(),
+                    "strict": True,
+                },
+            },
         )
     except Exception as exc:
-        raise LLMExtractionError(f"Gemini request failed: {exc}") from exc
-    if not response.text:
-        raise LLMExtractionError("Gemini returned an empty response")
-    return response.text
+        raise LLMExtractionError(f"Groq request failed: {exc}") from exc
+    raw = response.choices[0].message.content
+    if not raw:
+        raise LLMExtractionError("Groq returned an empty response")
+    return raw
