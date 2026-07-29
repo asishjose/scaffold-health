@@ -1,8 +1,8 @@
 """Golden-set evaluation for the extraction pipeline (PRD §9). Runs real
-Gemini calls against `golden_notes/*.txt` and scores the results against
+Groq calls against `golden_notes/*.txt` and scores the results against
 `golden_labels.json`, reporting precision/recall/F1 per field.
 
-Usage (from backend/, with GEMINI_API_KEY set):
+Usage (from backend/, with GROQ_API_KEY set):
     python -m eval.run_eval
 """
 

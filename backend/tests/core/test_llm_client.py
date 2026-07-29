@@ -47,10 +47,10 @@ def test_extract_facts_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_extract_facts_raises_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(llm_client.settings, "gemini_api_key", None)
+    monkeypatch.setattr(llm_client.settings, "groq_api_key", None)
     monkeypatch.setattr(llm_client, "_client", None)
 
-    with pytest.raises(LLMExtractionError, match="GEMINI_API_KEY"):
+    with pytest.raises(LLMExtractionError, match="GROQ_API_KEY"):
         extract_facts("text", schema=["milestones"])
 
 
@@ -100,7 +100,7 @@ def test_embed_text_returns_vector(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_embed_text_raises_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_client.settings, "gemini_api_key", None)
-    monkeypatch.setattr(llm_client, "_client", None)
+    monkeypatch.setattr(llm_client, "_embedding_client", None)
 
     with pytest.raises(LLMExtractionError, match="GEMINI_API_KEY"):
         embed_text("text")
@@ -117,7 +117,7 @@ def test_embed_text_raises_when_response_has_no_embeddings(monkeypatch: pytest.M
     class _StubClient:
         models = _StubModels()
 
-    monkeypatch.setattr(llm_client, "_client", _StubClient())
+    monkeypatch.setattr(llm_client, "_embedding_client", _StubClient())
     monkeypatch.setattr(llm_client.settings, "gemini_api_key", "fake-key")
 
     with pytest.raises(LLMExtractionError, match="no embeddings"):
