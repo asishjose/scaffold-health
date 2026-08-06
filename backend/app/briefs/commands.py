@@ -23,6 +23,38 @@ class PatientNotFound(Exception):
     pass
 
 
+def _get_owned_patient(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUID) -> Patient:
+    patient = db.execute(
+        select(Patient).where(Patient.id == patient_id, Patient.therapist_id == therapist_id)
+    ).scalar_one_or_none()
+    if patient is None:
+        raise PatientNotFound()
+    return patient
+
+
+def _get_latest_brief_row(
+    db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUID
+) -> Brief | None:
+    return db.execute(
+        select(Brief)
+        .where(Brief.patient_id == patient_id, Brief.therapist_id == therapist_id)
+        .order_by(Brief.generated_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def get_latest_brief(
+    db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUID
+) -> Brief | None:
+    """Read-only lookup of the most recently generated brief, with no LLM
+    call — this is the "cache read" the patient-detail page uses to show a
+    brief automatically without regenerating one on every visit. `None`
+    means no brief has ever been generated for this patient, not an error.
+    """
+    _get_owned_patient(db, patient_id=patient_id, therapist_id=therapist_id)
+    return _get_latest_brief_row(db, patient_id=patient_id, therapist_id=therapist_id)
+
+
 def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUID) -> Brief:
     """Assembles a therapist prep brief (PRD Week 4 / M8): Knowledge Profile
     + events since the last brief + relevant RAG context, narrated into
@@ -30,18 +62,9 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
     Flags are never LLM-generated — they're the same typed, deterministic
     reasons used elsewhere in the Knowledge Profile (PRD §6.3).
     """
-    patient = db.execute(
-        select(Patient).where(Patient.id == patient_id, Patient.therapist_id == therapist_id)
-    ).scalar_one_or_none()
-    if patient is None:
-        raise PatientNotFound()
+    patient = _get_owned_patient(db, patient_id=patient_id, therapist_id=therapist_id)
 
-    last_brief = db.execute(
-        select(Brief)
-        .where(Brief.patient_id == patient_id, Brief.therapist_id == therapist_id)
-        .order_by(Brief.generated_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    last_brief = _get_latest_brief_row(db, patient_id=patient_id, therapist_id=therapist_id)
     since = last_brief.generated_at if last_brief is not None else patient.created_at
 
     profile_fields = therapist_queries.list_profile_fields(

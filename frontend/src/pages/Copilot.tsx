@@ -2,8 +2,8 @@ import { Search, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import type { PatientListItem } from '@/shared/api/types'
+import { CopilotChatPanel } from '@/shared/components/CopilotChatPanel'
 import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
-import { PrepBriefPanel } from '@/shared/components/PrepBriefPanel'
 import { usePatients } from '@/shared/hooks/usePatients'
 import { cn } from '@/shared/lib/utils'
 import { phaseLabel } from '@/shared/phases'
@@ -43,7 +43,7 @@ export function Copilot() {
           Therapist Copilot
         </h1>
         <p className="text-sm text-muted-foreground">
-          Pick a patient to generate an appointment-prep brief.
+          Pick a patient to chat with an AI copilot grounded in their chart.
         </p>
       </div>
 
@@ -98,12 +98,12 @@ export function Copilot() {
               <Badge variant="secondary">{phaseLabel(selectedPatient.current_phase)}</Badge>
               <NeedsReviewBadges reasons={selectedPatient.needs_review} />
             </div>
-            <PrepBriefPanel key={selectedPatient.id} patientId={selectedPatient.id} />
+            <CopilotChatPanel key={selectedPatient.id} patientId={selectedPatient.id} />
           </div>
         ) : (
           <Card>
             <CardContent className="flex h-full min-h-[200px] items-center justify-center p-8 text-center">
-              <CardDescription>Select a patient to generate a prep brief.</CardDescription>
+              <CardDescription>Select a patient to start a conversation.</CardDescription>
             </CardContent>
           </Card>
         )}
