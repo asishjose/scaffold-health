@@ -51,6 +51,12 @@ class AssistantAnswer(BaseModel):
     redirect: bool
 
 
+class CopilotAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+
+
 class LLMExtractionError(Exception):
     pass
 
@@ -119,6 +125,22 @@ question, say so plainly rather than guessing.
 When in doubt about whether a question concerns the patient's own condition, set redirect to \
 true — it is always safer to refer the patient to their clinic than to answer with anything \
 that could be read as clinical guidance."""
+
+_COPILOT_SYSTEM_INSTRUCTION = """You are a clinical copilot for a therapist at Scaffold Health, \
+an orthopedic rehab platform, answering the therapist's own questions about one specific patient \
+recovering from ACL reconstruction surgery. This system is advisory-only: you never diagnose, \
+recommend treatment, or make clinical decisions — you only surface and discuss what has already \
+been documented, and share general clinical-guideline information, to support the therapist's \
+own judgment.
+
+You will be given the patient's current Knowledge Profile, a summary of their recent activity, \
+relevant excerpts from the patient's own notes/documents, relevant excerpts from a shared \
+clinical-guidelines corpus, and the recent conversation history. Answer the therapist's latest \
+question grounded only in what's provided — never invent facts about this patient. If the \
+provided material doesn't cover the question, say so plainly rather than guessing.
+
+Produce your response as JSON with exactly one field:
+- answer: a concise, plain-language answer for the therapist."""
 
 _client: "Groq | None" = None
 _embedding_client: "genai.Client | None" = None
@@ -197,6 +219,35 @@ def answer_patient_question(*, question: str, education_excerpts: list[str]) -> 
     raw = _generate_assistant_answer(question=question, education_excerpts=education_excerpts)
     try:
         return AssistantAnswer.model_validate_json(raw)
+    except ValueError as exc:
+        raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
+
+
+def answer_copilot_message(
+    *,
+    question: str,
+    profile_summary: str,
+    recent_activity_summary: str,
+    patient_note_excerpts: list[str],
+    guideline_excerpts: list[str],
+    history: list[dict[str, str]],
+) -> CopilotAnswer:
+    """One structured-output LLM call answering a therapist's message in the
+    per-patient copilot chat, grounded in that patient's Knowledge Profile,
+    recent activity, notes, and the shared clinical-guidelines corpus, plus
+    `history` (prior turns of this same conversation, oldest first) for
+    multi-turn continuity.
+    """
+    raw = _generate_copilot_answer(
+        question=question,
+        profile_summary=profile_summary,
+        recent_activity_summary=recent_activity_summary,
+        patient_note_excerpts=patient_note_excerpts,
+        guideline_excerpts=guideline_excerpts,
+        history=history,
+    )
+    try:
+        return CopilotAnswer.model_validate_json(raw)
     except ValueError as exc:
         raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
 
@@ -297,6 +348,57 @@ def _generate_brief(
                 "json_schema": {
                     "name": "brief_sections",
                     "schema": BriefSections.model_json_schema(),
+                    "strict": True,
+                },
+            },
+        )
+    except Exception as exc:
+        raise LLMExtractionError(f"Groq request failed: {exc}") from exc
+    raw = response.choices[0].message.content
+    if not raw:
+        raise LLMExtractionError("Groq returned an empty response")
+    return raw
+
+
+def _generate_copilot_answer(
+    *,
+    question: str,
+    profile_summary: str,
+    recent_activity_summary: str,
+    patient_note_excerpts: list[str],
+    guideline_excerpts: list[str],
+    history: list[dict[str, str]],
+) -> str:
+    """Thin seam around the Groq SDK call, isolated so tests can monkeypatch
+    it and exercise answer_copilot_message's parsing logic without a
+    network call, mirroring `_generate_assistant_answer`. Unlike the other
+    calls here, prior conversation turns are passed as real message-array
+    entries rather than folded into the prompt string, so Groq sees actual
+    turn-taking history.
+    """
+    client = _get_client()
+    notes_block = "\n---\n".join(patient_note_excerpts) if patient_note_excerpts else "none"
+    guidelines_block = "\n---\n".join(guideline_excerpts) if guideline_excerpts else "none"
+    prompt = (
+        f"Knowledge Profile:\n{profile_summary}\n\n"
+        f"Recent activity:\n{recent_activity_summary}\n\n"
+        f"Relevant patient note excerpts:\n{notes_block}\n\n"
+        f"Relevant clinical guideline excerpts:\n{guidelines_block}\n\n"
+        f"Therapist's question:\n{question}"
+    )
+    try:
+        response = client.chat.completions.create(
+            model=settings.groq_model,
+            messages=[
+                {"role": "system", "content": _COPILOT_SYSTEM_INSTRUCTION},
+                *history,
+                {"role": "user", "content": prompt},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "copilot_answer",
+                    "schema": CopilotAnswer.model_json_schema(),
                     "strict": True,
                 },
             },

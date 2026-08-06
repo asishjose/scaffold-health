@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 
 import { ApiError } from '@/shared/api/client'
 import type { PatientDetail as PatientDetailType } from '@/shared/api/types'
+import { PrepBriefPanel } from '@/shared/components/PrepBriefPanel'
 import { useAdvancePhase } from '@/shared/hooks/usePatients'
 import { formatDate, injuryLabel, weeksPostOpLabel } from '@/shared/lib/utils'
 import { nextPhase, phaseLabel } from '@/shared/phases'
@@ -186,6 +187,7 @@ export function OverviewTab() {
   return (
     <div className="space-y-6">
       <ProfileSummaryCards patient={patient} />
+      <PrepBriefPanel key={patient.id} patientId={patient.id} />
       <div className="grid gap-6 lg:grid-cols-2">
         <KnowledgeProfilePanel patient={patient} />
         <PhaseAdvanceControl patient={patient} />

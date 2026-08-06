@@ -152,3 +152,13 @@ export interface AssistantAnswer {
   redirected: boolean
   asked_at: string
 }
+
+export type CopilotMessageRole = 'therapist' | 'assistant'
+
+export interface CopilotMessage {
+  id: string
+  patient_id: string
+  role: CopilotMessageRole
+  content: string
+  posted_at: string
+}

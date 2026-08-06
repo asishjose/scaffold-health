@@ -1,12 +1,10 @@
 import {
-  ArrowLeft,
   Clock,
   FileText,
   LayoutGrid,
   LineChart,
   ShieldCheck,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
 
 import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
 import { usePatient } from '@/shared/hooks/usePatients'
@@ -19,14 +17,6 @@ export function PatientSidebar({ patientId }: { patientId: string }) {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <Link
-        to="/caseload"
-        className="flex items-center gap-1 px-3 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to caseload
-      </Link>
-
       {patient.isSuccess && (
         <div className="space-y-2 border-b px-3 pb-3">
           <p className="truncate text-sm font-semibold">{patient.data.name}</p>

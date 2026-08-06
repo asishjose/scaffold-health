@@ -108,6 +108,48 @@ def test_generate_brief_second_call_only_summarizes_events_since_first_brief(
     assert "(week 1)" not in calls[1]["recent_events_summary"]
 
 
+def test_get_latest_brief_returns_none_when_no_brief_exists(db: Session) -> None:
+    therapist_id, patient_id = _make_patient(db)
+
+    result = commands.get_latest_brief(db, patient_id=patient_id, therapist_id=therapist_id)
+
+    assert result is None
+
+
+def test_get_latest_brief_returns_most_recent_row_without_calling_llm(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    therapist_id, patient_id = _make_patient(db)
+    calls: list[dict] = []
+    _stub_llm(monkeypatch, calls)
+
+    first = commands.generate_brief(db, patient_id=patient_id, therapist_id=therapist_id)
+    second = commands.generate_brief(db, patient_id=patient_id, therapist_id=therapist_id)
+    assert len(calls) == 2
+
+    result = commands.get_latest_brief(db, patient_id=patient_id, therapist_id=therapist_id)
+
+    assert result is not None
+    assert result.id == second.id
+    assert result.id != first.id
+    assert len(calls) == 2  # get_latest_brief made no additional LLM call
+
+
+def test_get_latest_brief_rejects_unknown_patient(db: Session) -> None:
+    therapist_id, _ = _make_patient(db)
+
+    with pytest.raises(commands.PatientNotFound):
+        commands.get_latest_brief(db, patient_id=uuid.uuid4(), therapist_id=therapist_id)
+
+
+def test_get_latest_brief_rejects_non_owning_therapist(db: Session) -> None:
+    _, patient_id = _make_patient(db)
+    other_therapist_id, _ = _make_patient(db)
+
+    with pytest.raises(commands.PatientNotFound):
+        commands.get_latest_brief(db, patient_id=patient_id, therapist_id=other_therapist_id)
+
+
 def test_generate_brief_flags_worsening_pain_trend(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

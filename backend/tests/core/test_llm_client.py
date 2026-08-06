@@ -1,7 +1,13 @@
 import pytest
 
 from app.core import llm_client
-from app.core.llm_client import LLMExtractionError, embed_text, extract_facts, generate_brief_text
+from app.core.llm_client import (
+    LLMExtractionError,
+    answer_copilot_message,
+    embed_text,
+    extract_facts,
+    generate_brief_text,
+)
 
 
 def test_extract_facts_parses_valid_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -83,6 +89,39 @@ def test_generate_brief_text_raises_on_invalid_json(monkeypatch: pytest.MonkeyPa
             flags=[],
             recent_events_summary="",
             note_excerpts=[],
+        )
+
+
+def test_answer_copilot_message_parses_valid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        llm_client,
+        "_generate_copilot_answer",
+        lambda **kwargs: '{"answer": "No active restrictions noted."}',
+    )
+
+    result = answer_copilot_message(
+        question="Any restrictions?",
+        profile_summary="Injury: acl_reconstruction",
+        recent_activity_summary="No recent activity recorded.",
+        patient_note_excerpts=[],
+        guideline_excerpts=[],
+        history=[],
+    )
+
+    assert result.answer == "No active restrictions noted."
+
+
+def test_answer_copilot_message_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(llm_client, "_generate_copilot_answer", lambda **kwargs: "not json")
+
+    with pytest.raises(LLMExtractionError):
+        answer_copilot_message(
+            question="Any restrictions?",
+            profile_summary="",
+            recent_activity_summary="",
+            patient_note_excerpts=[],
+            guideline_excerpts=[],
+            history=[],
         )
 
 

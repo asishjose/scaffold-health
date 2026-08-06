@@ -83,6 +83,49 @@ def test_generate_brief_rejects_non_owning_therapist() -> None:
     assert response.status_code == 404
 
 
+def test_get_latest_brief_returns_null_before_first_generation() -> None:
+    token = _signup_and_login_therapist()
+    patient_id = _create_patient(token)
+
+    response = client.get(f"/patients/{patient_id}/brief", headers=_auth_headers(token))
+
+    assert response.status_code == 200, response.text
+    assert response.json() is None
+
+
+def test_get_latest_brief_returns_generated_brief() -> None:
+    token = _signup_and_login_therapist()
+    patient_id = _create_patient(token)
+    client.post(f"/patients/{patient_id}/brief", headers=_auth_headers(token))
+
+    response = client.get(f"/patients/{patient_id}/brief", headers=_auth_headers(token))
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["patient_id"] == patient_id
+    assert body["since_last_visit"] == "Nothing notable."
+
+
+def test_get_latest_brief_rejects_non_owning_therapist() -> None:
+    token_a = _signup_and_login_therapist()
+    token_b = _signup_and_login_therapist()
+    patient_id = _create_patient(token_a)
+
+    response = client.get(f"/patients/{patient_id}/brief", headers=_auth_headers(token_b))
+
+    assert response.status_code == 404
+
+
+def test_get_latest_brief_rejects_patient_role() -> None:
+    token = _signup_and_login_therapist()
+    patient_id = _create_patient(token)
+    patient_token = create_access_token(subject=str(uuid.uuid4()), role="patient")
+
+    response = client.get(f"/patients/{patient_id}/brief", headers=_auth_headers(patient_token))
+
+    assert response.status_code == 403
+
+
 def test_generate_brief_rejects_patient_role() -> None:
     token = _signup_and_login_therapist()
     patient_id = _create_patient(token)

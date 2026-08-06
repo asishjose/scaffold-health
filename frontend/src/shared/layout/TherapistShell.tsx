@@ -32,8 +32,15 @@ export function TherapistShell() {
         </div>
       </header>
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-60 shrink-0 overflow-y-auto border-r bg-card">
-          {patientMatch ? <PatientSidebar patientId={patientMatch.params.id!} /> : <GlobalSidebar />}
+        <aside className="flex shrink-0 overflow-y-auto border-r bg-card">
+          <div className="w-60 shrink-0 border-r bg-card">
+            <GlobalSidebar patientActive={!!patientMatch} />
+          </div>
+          {patientMatch && (
+            <div className="w-60 shrink-0 bg-card">
+              <PatientSidebar patientId={patientMatch.params.id!} />
+            </div>
+          )}
         </aside>
         <main className="flex-1 overflow-y-auto px-8 py-8">
           <div className="mx-auto max-w-6xl">

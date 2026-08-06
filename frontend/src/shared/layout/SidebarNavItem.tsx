@@ -9,11 +9,13 @@ export function SidebarNavItem({
   end,
   icon: Icon,
   children,
+  forceActive,
 }: {
   to: string
   end?: boolean
   icon: LucideIcon
   children: ReactNode
+  forceActive?: boolean
 }) {
   return (
     <NavLink
@@ -22,7 +24,7 @@ export function SidebarNavItem({
       className={({ isActive }) =>
         cn(
           'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-          isActive
+          (forceActive ?? isActive)
             ? 'bg-accent text-accent-foreground'
             : 'text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground',
         )
