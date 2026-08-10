@@ -1,13 +1,28 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token
+from app.core.llm_client import ExtractedFact
+from app.core.security import TokenType, create_access_token, decode_token
+from app.documents import commands as document_commands
 from app.main import app
+from app.patients.models import Patient
+from app.profile.commands import merge_extracted_facts
 
 client = TestClient(app)
+
+
+def _minimal_pdf_bytes() -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    buf = BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
 
 
 def _signup_and_login_therapist() -> tuple[str, str]:
@@ -38,6 +53,10 @@ def _intake_payload() -> dict:
 
 def _auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _therapist_id_from_token(token: str) -> uuid.UUID:
+    return uuid.UUID(decode_token(token, expected_type=TokenType.ACCESS)["sub"])
 
 
 def test_create_patient_as_therapist() -> None:
@@ -215,3 +234,137 @@ def test_advance_phase_rejects_non_owning_therapist() -> None:
     )
 
     assert response.status_code == 404
+
+
+def _seed_contradiction(db: Session, *, token: str, patient_id: str) -> str:
+    """Contradictions are only ever produced by the extraction pipeline
+    (normally driven by a live Gemini call), so — matching the
+    tests/profile and tests/timeline convention — this drives the merge
+    command directly instead of standing up a real extraction.
+    """
+    therapist_id = _therapist_id_from_token(token)
+    patient = db.get(Patient, uuid.UUID(patient_id))
+    document = document_commands.upload_document(
+        db,
+        patient_id=patient.id,
+        therapist_id=therapist_id,
+        filename="note.pdf",
+        content_type="application/pdf",
+        file_bytes=_minimal_pdf_bytes(),
+    )
+    written = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="injury", value="Medial meniscus tear", confidence=0.9, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    assert therapist_id == patient.therapist_id
+    return str(written[0].id)
+
+
+def test_acknowledge_contradiction_clears_needs_review_flag(db: Session) -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    field_id = _seed_contradiction(db, token=token, patient_id=created["id"])
+
+    before = client.get(f"/patients/{created['id']}", headers=_auth_headers(token)).json()
+    assert "Contradiction" in before["needs_review"]
+
+    ack = client.post(
+        f"/patients/{created['id']}/profile-fields/{field_id}/acknowledge-contradiction",
+        headers=_auth_headers(token),
+    )
+    assert ack.status_code == 200, ack.text
+    assert ack.json()["acknowledged_at"] is not None
+
+    after = client.get(f"/patients/{created['id']}", headers=_auth_headers(token)).json()
+    assert "Contradiction" not in after["needs_review"]
+
+
+def test_acknowledge_contradiction_rejects_non_contradiction_field(db: Session) -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    patient = db.get(Patient, uuid.UUID(created["id"]))
+    document = document_commands.upload_document(
+        db,
+        patient_id=patient.id,
+        therapist_id=patient.therapist_id,
+        filename="note.pdf",
+        content_type="application/pdf",
+        file_bytes=_minimal_pdf_bytes(),
+    )
+    written = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="milestones",
+                value="Full extension achieved",
+                confidence=0.9,
+                source_quote="q1",
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+
+    response = client.post(
+        f"/patients/{created['id']}/profile-fields/{written[0].id}/acknowledge-contradiction",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 409
+
+
+def test_acknowledge_contradiction_rejects_unknown_field() -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+
+    response = client.post(
+        f"/patients/{created['id']}/profile-fields/{uuid.uuid4()}/acknowledge-contradiction",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_acknowledge_contradiction_rejects_non_owning_therapist(db: Session) -> None:
+    token_a, _ = _signup_and_login_therapist()
+    token_b, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token_a)
+    ).json()
+    field_id = _seed_contradiction(db, token=token_a, patient_id=created["id"])
+
+    response = client.post(
+        f"/patients/{created['id']}/profile-fields/{field_id}/acknowledge-contradiction",
+        headers=_auth_headers(token_b),
+    )
+
+    assert response.status_code == 404
+
+
+def test_acknowledge_contradiction_rejects_patient_role() -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    patient_token = create_access_token(subject=str(uuid.uuid4()), role="patient")
+
+    response = client.post(
+        f"/patients/{created['id']}/profile-fields/{uuid.uuid4()}/acknowledge-contradiction",
+        headers=_auth_headers(patient_token),
+    )
+
+    assert response.status_code == 403

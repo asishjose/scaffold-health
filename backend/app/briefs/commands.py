@@ -76,7 +76,9 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
     window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
     recent_checkin_count = sum(1 for c in checkins if c.submitted_at >= window_start)
     flags = derived.compute_needs_review_reasons(
-        has_contradiction=any(f.is_contradiction for f in profile_fields),
+        has_contradiction=any(
+            f.is_contradiction and f.acknowledged_at is None for f in profile_fields
+        ),
         has_recent_assistant_redirect=therapist_queries.has_recent_assistant_redirect(
             db, therapist_id=therapist_id, patient_id=patient_id, window_start=window_start
         ),

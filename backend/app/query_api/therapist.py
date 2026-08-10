@@ -168,7 +168,11 @@ def list_needs_review_reasons(
     contradiction_patient_ids = set(
         db.execute(
             select(ProfileField.patient_id)
-            .where(ProfileField.therapist_id == therapist_id, ProfileField.is_contradiction.is_(True))
+            .where(
+                ProfileField.therapist_id == therapist_id,
+                ProfileField.is_contradiction.is_(True),
+                ProfileField.acknowledged_at.is_(None),
+            )
             .distinct()
         ).scalars()
     )

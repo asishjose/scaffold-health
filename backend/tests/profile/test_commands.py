@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
+import pytest
 from pypdf import PdfWriter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,7 +14,12 @@ from app.documents import commands as document_commands
 from app.documents.models import Document
 from app.patients import commands as patient_commands
 from app.patients.models import Patient
-from app.profile.commands import merge_extracted_facts
+from app.profile.commands import (
+    NotAContradiction,
+    ProfileFieldNotFound,
+    acknowledge_contradiction,
+    merge_extracted_facts,
+)
 from app.profile.models import ProfileField
 
 FIXED_SURGERY_DATE = date.today() + timedelta(days=14)
@@ -270,6 +276,86 @@ def test_immutable_field_conflicting_with_baseline_is_flagged_and_not_applied(db
     assert written[0].is_contradiction is True
     # The authoritative admin field is untouched — contradictions are surfaced, never silently applied.
     assert patient.surgery_date == FIXED_SURGERY_DATE
+
+
+def test_acknowledge_contradiction_sets_acknowledged_at(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    written = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="injury", value="Medial meniscus tear", confidence=0.9, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    field = written[0]
+    assert field.acknowledged_at is None
+
+    acknowledged = acknowledge_contradiction(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=field.id
+    )
+
+    assert acknowledged.acknowledged_at is not None
+
+
+def test_acknowledge_contradiction_is_idempotent(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    written = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="injury", value="Medial meniscus tear", confidence=0.9, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    field_id = written[0].id
+
+    first = acknowledge_contradiction(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=field_id
+    )
+    second = acknowledge_contradiction(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=field_id
+    )
+
+    assert first.acknowledged_at == second.acknowledged_at
+
+
+def test_acknowledge_contradiction_rejects_non_contradiction_field(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    written = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="milestones",
+                value="Full extension achieved",
+                confidence=0.9,
+                source_quote="q1",
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+
+    with pytest.raises(NotAContradiction):
+        acknowledge_contradiction(
+            db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=written[0].id
+        )
+
+
+def test_acknowledge_contradiction_rejects_unknown_field(db: Session) -> None:
+    patient, _document = _make_patient_and_document(db)
+
+    with pytest.raises(ProfileFieldNotFound):
+        acknowledge_contradiction(
+            db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=uuid.uuid4()
+        )
 
 
 def test_unrecognized_field_name_is_silently_ignored(db: Session) -> None:

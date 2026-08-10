@@ -7,6 +7,7 @@ import type {
   PatientListItem,
   PatientPortalDetail,
   PhaseAdvanceResponse,
+  ProfileField,
 } from '@/shared/api/types'
 import { useAuthStore } from '@/shared/auth/authStore'
 
@@ -53,5 +54,19 @@ export function useAdvancePhase(patientId: string) {
     mutationFn: (body: { target_phase: string; note: string | null }) =>
       api<PhaseAdvanceResponse>(`/patients/${patientId}/phase`, { method: 'POST', body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['patients'] }),
+  })
+}
+
+export function useAcknowledgeContradiction(patientId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (fieldId: string) =>
+      api<ProfileField>(`/patients/${patientId}/profile-fields/${fieldId}/acknowledge-contradiction`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients', patientId] })
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+    },
   })
 }

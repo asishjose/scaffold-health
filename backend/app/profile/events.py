@@ -2,6 +2,9 @@ STREAM_TYPE_PROFILE = "patient_profile"
 
 # One event per (document, field_name) extraction batch — see commands.py.
 PROFILE_FIELDS_MERGED = "ProfileFieldsMerged"
+# Therapist decision on a single contradictory ProfileField row — see
+# commands.acknowledge_contradiction.
+CONTRADICTION_ACKNOWLEDGED = "ContradictionAcknowledged"
 
 STRATEGY_OVERWRITE = "overwrite"
 STRATEGY_APPEND_ONLY = "append_only"

@@ -17,6 +17,7 @@ from app.patients.schemas import (
     PatientPortalDetailResponse,
     PhaseAdvanceResponse,
 )
+from app.profile import commands as profile_commands
 from app.profile import derived
 from app.profile.schemas import ProfileFieldResponse
 from app.query_api import patient as patient_queries
@@ -95,7 +96,9 @@ def get_patient(
         window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
         recent_checkin_count = sum(1 for c in checkins if c.submitted_at >= window_start)
         needs_review = derived.compute_needs_review_reasons(
-            has_contradiction=any(f.is_contradiction for f in profile_fields),
+            has_contradiction=any(
+                f.is_contradiction and f.acknowledged_at is None for f in profile_fields
+            ),
             has_recent_assistant_redirect=therapist_queries.has_recent_assistant_redirect(
                 db, therapist_id=current_user.id, patient_id=patient_id, window_start=window_start
             ),
@@ -176,3 +179,31 @@ def advance_phase(
         ) from exc
 
     return PhaseAdvanceResponse.model_validate(patient)
+
+
+@router.post(
+    "/{patient_id}/profile-fields/{field_id}/acknowledge-contradiction",
+    response_model=ProfileFieldResponse,
+)
+def acknowledge_contradiction(
+    patient_id: uuid.UUID,
+    field_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProfileFieldResponse:
+    require_role(current_user, "therapist")
+
+    try:
+        field = profile_commands.acknowledge_contradiction(
+            db, patient_id=patient_id, therapist_id=current_user.id, field_id=field_id
+        )
+    except profile_commands.ProfileFieldNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Profile field not found"
+        ) from exc
+    except profile_commands.NotAContradiction as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Profile field is not a contradiction"
+        ) from exc
+
+    return ProfileFieldResponse.model_validate(field)
