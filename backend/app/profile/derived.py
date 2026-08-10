@@ -7,7 +7,12 @@ touching the database or the LLM.
 from datetime import datetime, timedelta, timezone
 from statistics import mean
 
-from app.profile.events import REASON_ADHERENCE_DROP, REASON_CONTRADICTION, REASON_NO_CHECKIN
+from app.profile.events import (
+    REASON_ADHERENCE_DROP,
+    REASON_ASSISTANT_REDIRECT,
+    REASON_CONTRADICTION,
+    REASON_NO_CHECKIN,
+)
 
 PAIN_TREND_IMPROVING = "improving"
 PAIN_TREND_WORSENING = "worsening"
@@ -56,6 +61,7 @@ def compute_exercise_adherence(
 def compute_needs_review_reasons(
     *,
     has_contradiction: bool,
+    has_recent_assistant_redirect: bool,
     invite_accepted_at: datetime | None,
     is_discharged: bool,
     recent_checkin_count: int,
@@ -68,6 +74,8 @@ def compute_needs_review_reasons(
     reasons = []
     if has_contradiction:
         reasons.append(REASON_CONTRADICTION)
+    if has_recent_assistant_redirect:
+        reasons.append(REASON_ASSISTANT_REDIRECT)
 
     now = now or datetime.now(timezone.utc)
     account_active_long_enough = (
