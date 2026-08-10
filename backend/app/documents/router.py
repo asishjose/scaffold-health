@@ -60,4 +60,12 @@ def list_documents(
     documents = therapist_queries.list_documents(
         db, therapist_id=current_user.id, patient_id=patient_id
     )
-    return [DocumentListItem.model_validate(document) for document in documents]
+    pending_ids = commands.list_document_ids_with_pending_facts(
+        db, document_ids=[document.id for document in documents]
+    )
+    return [
+        DocumentListItem.model_validate(document).model_copy(
+            update={"has_pending_facts": document.id in pending_ids}
+        )
+        for document in documents
+    ]

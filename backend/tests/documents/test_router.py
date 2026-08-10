@@ -1,13 +1,17 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.main import app
+from app.patients.models import Patient
+from app.profile.events import PENDING_STATUS_PENDING, PENDING_STATUS_REJECTED
+from app.profile.models import PendingProfileFact
 
 client = TestClient(app)
 
@@ -125,3 +129,45 @@ def test_list_documents_scoped_to_owning_therapist() -> None:
     assert list_a.status_code == 200
     assert len(list_a.json()) == 1
     assert list_b.status_code == 404
+
+
+def test_list_documents_reflects_has_pending_facts(db: Session) -> None:
+    token = _signup_and_login_therapist()
+    patient_id = _create_patient(token)
+    upload = client.post(
+        f"/patients/{patient_id}/documents",
+        files={"file": ("mri-report.pdf", _minimal_pdf_bytes(), "application/pdf")},
+        headers=_auth_headers(token),
+    )
+    document_id = upload.json()["id"]
+    therapist_id = db.get(Patient, uuid.UUID(patient_id)).therapist_id
+
+    before = client.get(f"/patients/{patient_id}/documents", headers=_auth_headers(token))
+    assert before.json()[0]["has_pending_facts"] is False
+
+    pending = PendingProfileFact(
+        id=uuid.uuid4(),
+        patient_id=uuid.UUID(patient_id),
+        therapist_id=therapist_id,
+        source_document_id=uuid.UUID(document_id),
+        field_name="milestones",
+        value="Uncertain milestone",
+        confidence=0.3,
+        source_quote="q1",
+        is_contradiction=False,
+        is_low_confidence=True,
+        extractor_version="test",
+        extracted_at=datetime.now(timezone.utc),
+        status=PENDING_STATUS_PENDING,
+    )
+    db.add(pending)
+    db.commit()
+
+    during = client.get(f"/patients/{patient_id}/documents", headers=_auth_headers(token))
+    assert during.json()[0]["has_pending_facts"] is True
+
+    pending.status = PENDING_STATUS_REJECTED
+    db.commit()
+
+    after = client.get(f"/patients/{patient_id}/documents", headers=_auth_headers(token))
+    assert after.json()[0]["has_pending_facts"] is False

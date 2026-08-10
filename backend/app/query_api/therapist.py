@@ -10,7 +10,8 @@ from app.documents.models import Document
 from app.patients.events import PHASE_SEQUENCE
 from app.patients.models import Patient
 from app.profile import derived
-from app.profile.models import ProfileField
+from app.profile.events import PENDING_STATUS_PENDING
+from app.profile.models import PendingProfileFact, ProfileField
 from app.rag.events import SCOPE_CLINICAL_GUIDELINES, SCOPE_PATIENT_NOTES
 from app.rag.models import RagChunk
 from app.timeline.models import TimelineEntry
@@ -113,6 +114,37 @@ def current_field_values(profile_fields: list[ProfileField], field_name: str) ->
     return [f.value for f in profile_fields if f.field_name == field_name and f.superseded_at is None]
 
 
+def list_pending_facts(
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
+) -> list[PendingProfileFact]:
+    return list(
+        db.execute(
+            select(PendingProfileFact)
+            .where(
+                PendingProfileFact.patient_id == patient_id,
+                PendingProfileFact.therapist_id == therapist_id,
+                PendingProfileFact.status == PENDING_STATUS_PENDING,
+            )
+            .order_by(PendingProfileFact.extracted_at)
+        ).scalars()
+    )
+
+
+def has_pending_facts(db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID) -> bool:
+    return (
+        db.execute(
+            select(PendingProfileFact.id)
+            .where(
+                PendingProfileFact.patient_id == patient_id,
+                PendingProfileFact.therapist_id == therapist_id,
+                PendingProfileFact.status == PENDING_STATUS_PENDING,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def retrieve_patient_notes_chunks(
     db: Session,
     *,
@@ -165,13 +197,12 @@ def list_needs_review_reasons(
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
 
-    contradiction_patient_ids = set(
+    pending_extraction_patient_ids = set(
         db.execute(
-            select(ProfileField.patient_id)
+            select(PendingProfileFact.patient_id)
             .where(
-                ProfileField.therapist_id == therapist_id,
-                ProfileField.is_contradiction.is_(True),
-                ProfileField.acknowledged_at.is_(None),
+                PendingProfileFact.therapist_id == therapist_id,
+                PendingProfileFact.status == PENDING_STATUS_PENDING,
             )
             .distinct()
         ).scalars()
@@ -201,7 +232,7 @@ def list_needs_review_reasons(
 
     return {
         patient.id: derived.compute_needs_review_reasons(
-            has_contradiction=patient.id in contradiction_patient_ids,
+            has_pending_extraction=patient.id in pending_extraction_patient_ids,
             has_recent_assistant_redirect=patient.id in redirect_patient_ids,
             invite_accepted_at=patient.invite_accepted_at,
             is_discharged=patient.current_phase == DISCHARGED_PHASE,

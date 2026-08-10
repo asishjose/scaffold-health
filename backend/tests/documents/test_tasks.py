@@ -293,6 +293,120 @@ def test_process_document_marks_failed_when_llm_retries_exhausted(
         verify_session.close()
 
 
+def test_process_document_skips_rag_indexing_when_facts_staged(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(document_tasks.process_document, "delay", lambda *a, **kw: None)
+
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_pdf_bytes_with_text("Patient reports mild anterior knee pain."),
+    )
+
+    monkeypatch.setattr(
+        document_tasks,
+        "extract_facts",
+        lambda text, schema: [
+            ExtractedFact(
+                field_name="milestones",
+                value="Uncertain milestone",
+                confidence=0.3,
+                source_quote="q1",
+            )
+        ],
+    )
+    index_calls: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        document_tasks.rag_commands,
+        "index_document_residual_text",
+        lambda db, *, patient, document, text: index_calls.append(document.id),
+    )
+
+    process_document(str(document.id))
+
+    assert index_calls == []
+    verify_session = SessionLocal()
+    try:
+        refreshed = verify_session.get(Document, document.id)
+        assert refreshed.status == "extracted"
+    finally:
+        verify_session.close()
+
+
+def test_process_document_runs_rag_indexing_when_no_facts_staged(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(document_tasks.process_document, "delay", lambda *a, **kw: None)
+
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_pdf_bytes_with_text("Patient reports mild anterior knee pain."),
+    )
+
+    monkeypatch.setattr(
+        document_tasks,
+        "extract_facts",
+        lambda text, schema: [
+            ExtractedFact(
+                field_name="milestones",
+                value="Full extension achieved",
+                confidence=0.9,
+                source_quote="q1",
+            )
+        ],
+    )
+    index_calls: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        document_tasks.rag_commands,
+        "index_document_residual_text",
+        lambda db, *, patient, document, text: index_calls.append(document.id),
+    )
+
+    process_document(str(document.id))
+
+    assert index_calls == [document.id]
+
+
+def test_run_deferred_rag_indexing_indexes_document_text(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(document_tasks.process_document, "delay", lambda *a, **kw: None)
+
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_pdf_bytes_with_text("Patient reports mild anterior knee pain."),
+    )
+    commands.record_extraction_result(
+        db, document_id=document.id, extracted_text="Patient reports mild anterior knee pain."
+    )
+
+    index_calls: list[str] = []
+    monkeypatch.setattr(
+        document_tasks.rag_commands,
+        "index_document_residual_text",
+        lambda db, *, patient, document, text: index_calls.append(text),
+    )
+
+    document_tasks.run_deferred_rag_indexing(str(document.id))
+
+    assert index_calls == ["Patient reports mild anterior knee pain."]
+
+
 def test_process_document_still_extracted_when_rag_indexing_fails(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

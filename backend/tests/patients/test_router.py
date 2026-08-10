@@ -236,11 +236,11 @@ def test_advance_phase_rejects_non_owning_therapist() -> None:
     assert response.status_code == 404
 
 
-def _seed_contradiction(db: Session, *, token: str, patient_id: str) -> str:
-    """Contradictions are only ever produced by the extraction pipeline
-    (normally driven by a live Gemini call), so — matching the
-    tests/profile and tests/timeline convention — this drives the merge
-    command directly instead of standing up a real extraction.
+def _seed_pending_fact(db: Session, *, token: str, patient_id: str) -> str:
+    """Pending facts are only ever produced by the extraction pipeline
+    (normally driven by a live Groq/Gemini call), so — matching the
+    tests/profile convention — this drives the merge command directly
+    instead of standing up a real extraction.
     """
     therapist_id = _therapist_id_from_token(token)
     patient = db.get(Patient, uuid.UUID(patient_id))
@@ -252,7 +252,7 @@ def _seed_contradiction(db: Session, *, token: str, patient_id: str) -> str:
         content_type="application/pdf",
         file_bytes=_minimal_pdf_bytes(),
     )
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -264,98 +264,152 @@ def _seed_contradiction(db: Session, *, token: str, patient_id: str) -> str:
         extracted_at=datetime.now(timezone.utc),
     )
     assert therapist_id == patient.therapist_id
-    return str(written[0].id)
+    assert result.merged == []
+    return str(result.staged[0].id)
 
 
-def test_acknowledge_contradiction_clears_needs_review_flag(db: Session) -> None:
+def test_get_patient_needs_review_reflects_pending_facts(db: Session) -> None:
     token, _ = _signup_and_login_therapist()
     created = client.post(
         "/patients", json=_intake_payload(), headers=_auth_headers(token)
     ).json()
-    field_id = _seed_contradiction(db, token=token, patient_id=created["id"])
+    fact_id = _seed_pending_fact(db, token=token, patient_id=created["id"])
 
     before = client.get(f"/patients/{created['id']}", headers=_auth_headers(token)).json()
-    assert "Contradiction" in before["needs_review"]
+    assert "Pending extraction" in before["needs_review"]
 
-    ack = client.post(
-        f"/patients/{created['id']}/profile-fields/{field_id}/acknowledge-contradiction",
+    reject = client.post(
+        f"/patients/{created['id']}/pending-facts/{fact_id}/reject",
         headers=_auth_headers(token),
     )
-    assert ack.status_code == 200, ack.text
-    assert ack.json()["acknowledged_at"] is not None
+    assert reject.status_code == 200, reject.text
 
     after = client.get(f"/patients/{created['id']}", headers=_auth_headers(token)).json()
-    assert "Contradiction" not in after["needs_review"]
+    assert "Pending extraction" not in after["needs_review"]
 
 
-def test_acknowledge_contradiction_rejects_non_contradiction_field(db: Session) -> None:
+def test_list_pending_facts_scoped_to_owning_therapist(db: Session) -> None:
+    token_a, _ = _signup_and_login_therapist()
+    token_b, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token_a)
+    ).json()
+    _seed_pending_fact(db, token=token_a, patient_id=created["id"])
+
+    list_a = client.get(f"/patients/{created['id']}/pending-facts", headers=_auth_headers(token_a))
+    list_b = client.get(f"/patients/{created['id']}/pending-facts", headers=_auth_headers(token_b))
+
+    assert list_a.status_code == 200
+    assert len(list_a.json()) == 1
+    assert list_a.json()[0]["field_name"] == "injury"
+    assert list_b.status_code == 404
+
+
+def test_approve_pending_fact_as_owning_therapist(db: Session) -> None:
     token, _ = _signup_and_login_therapist()
     created = client.post(
         "/patients", json=_intake_payload(), headers=_auth_headers(token)
     ).json()
-    patient = db.get(Patient, uuid.UUID(created["id"]))
-    document = document_commands.upload_document(
-        db,
-        patient_id=patient.id,
-        therapist_id=patient.therapist_id,
-        filename="note.pdf",
-        content_type="application/pdf",
-        file_bytes=_minimal_pdf_bytes(),
+    fact_id = _seed_pending_fact(db, token=token, patient_id=created["id"])
+
+    response = client.post(
+        f"/patients/{created['id']}/pending-facts/{fact_id}/approve",
+        json={"value": None},
+        headers=_auth_headers(token),
     )
-    written = merge_extracted_facts(
-        db,
-        patient=patient,
-        document=document,
-        facts=[
-            ExtractedFact(
-                field_name="milestones",
-                value="Full extension achieved",
-                confidence=0.9,
-                source_quote="q1",
-            )
-        ],
-        extracted_at=datetime.now(timezone.utc),
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "approved"
+    assert body["resolved_value"] == "Medial meniscus tear"
+    assert body["resulting_profile_field_id"] is not None
+
+
+def test_approve_pending_fact_with_edited_value(db: Session) -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    fact_id = _seed_pending_fact(db, token=token, patient_id=created["id"])
+
+    response = client.post(
+        f"/patients/{created['id']}/pending-facts/{fact_id}/approve",
+        json={"value": "ACL reconstruction (corrected)"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["resolved_value"] == "ACL reconstruction (corrected)"
+
+
+def test_reject_pending_fact_as_owning_therapist(db: Session) -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    fact_id = _seed_pending_fact(db, token=token, patient_id=created["id"])
+
+    response = client.post(
+        f"/patients/{created['id']}/pending-facts/{fact_id}/reject",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "rejected"
+
+
+def test_approve_pending_fact_rejects_already_resolved(db: Session) -> None:
+    token, _ = _signup_and_login_therapist()
+    created = client.post(
+        "/patients", json=_intake_payload(), headers=_auth_headers(token)
+    ).json()
+    fact_id = _seed_pending_fact(db, token=token, patient_id=created["id"])
+    client.post(
+        f"/patients/{created['id']}/pending-facts/{fact_id}/reject", headers=_auth_headers(token)
     )
 
     response = client.post(
-        f"/patients/{created['id']}/profile-fields/{written[0].id}/acknowledge-contradiction",
+        f"/patients/{created['id']}/pending-facts/{fact_id}/approve",
+        json={"value": None},
         headers=_auth_headers(token),
     )
 
     assert response.status_code == 409
 
 
-def test_acknowledge_contradiction_rejects_unknown_field() -> None:
+def test_approve_pending_fact_rejects_unknown_fact() -> None:
     token, _ = _signup_and_login_therapist()
     created = client.post(
         "/patients", json=_intake_payload(), headers=_auth_headers(token)
     ).json()
 
     response = client.post(
-        f"/patients/{created['id']}/profile-fields/{uuid.uuid4()}/acknowledge-contradiction",
+        f"/patients/{created['id']}/pending-facts/{uuid.uuid4()}/approve",
+        json={"value": None},
         headers=_auth_headers(token),
     )
 
     assert response.status_code == 404
 
 
-def test_acknowledge_contradiction_rejects_non_owning_therapist(db: Session) -> None:
+def test_approve_pending_fact_rejects_non_owning_therapist(db: Session) -> None:
     token_a, _ = _signup_and_login_therapist()
     token_b, _ = _signup_and_login_therapist()
     created = client.post(
         "/patients", json=_intake_payload(), headers=_auth_headers(token_a)
     ).json()
-    field_id = _seed_contradiction(db, token=token_a, patient_id=created["id"])
+    fact_id = _seed_pending_fact(db, token=token_a, patient_id=created["id"])
 
     response = client.post(
-        f"/patients/{created['id']}/profile-fields/{field_id}/acknowledge-contradiction",
+        f"/patients/{created['id']}/pending-facts/{fact_id}/approve",
+        json={"value": None},
         headers=_auth_headers(token_b),
     )
 
     assert response.status_code == 404
 
 
-def test_acknowledge_contradiction_rejects_patient_role() -> None:
+def test_approve_pending_fact_rejects_patient_role() -> None:
     token, _ = _signup_and_login_therapist()
     created = client.post(
         "/patients", json=_intake_payload(), headers=_auth_headers(token)
@@ -363,7 +417,8 @@ def test_acknowledge_contradiction_rejects_patient_role() -> None:
     patient_token = create_access_token(subject=str(uuid.uuid4()), role="patient")
 
     response = client.post(
-        f"/patients/{created['id']}/profile-fields/{uuid.uuid4()}/acknowledge-contradiction",
+        f"/patients/{created['id']}/pending-facts/{uuid.uuid4()}/approve",
+        json={"value": None},
         headers=_auth_headers(patient_token),
     )
 

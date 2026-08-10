@@ -15,6 +15,7 @@ import { DocumentsTab } from '@/pages/patient-detail/DocumentsTab'
 import { OverviewTab } from '@/pages/patient-detail/OverviewTab'
 import { PainCheckinsTab } from '@/pages/patient-detail/PainCheckinsTab'
 import { PatientDetailShell } from '@/pages/patient-detail/PatientDetailShell'
+import { PendingFactsTab } from '@/pages/patient-detail/PendingFactsTab'
 import { ProvenanceTab } from '@/pages/patient-detail/ProvenanceTab'
 import { TimelineTab } from '@/pages/patient-detail/TimelineTab'
 import { AssistantTab } from '@/pages/patient-portal/AssistantTab'
@@ -58,6 +59,7 @@ export function App() {
               <Route path="/patients/:id" element={<PatientDetailShell />}>
                 <Route index element={<OverviewTab />} />
                 <Route path="documents" element={<DocumentsTab />} />
+                <Route path="pending-review" element={<PendingFactsTab />} />
                 <Route path="checkins" element={<PainCheckinsTab />} />
                 <Route path="timeline" element={<TimelineTab />} />
                 <Route path="provenance" element={<ProvenanceTab />} />

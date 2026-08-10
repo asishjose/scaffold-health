@@ -6,8 +6,8 @@ import type {
   PatientIntakeResponse,
   PatientListItem,
   PatientPortalDetail,
+  PendingProfileFact,
   PhaseAdvanceResponse,
-  ProfileField,
 } from '@/shared/api/types'
 import { useAuthStore } from '@/shared/auth/authStore'
 
@@ -57,16 +57,39 @@ export function useAdvancePhase(patientId: string) {
   })
 }
 
-export function useAcknowledgeContradiction(patientId: string) {
+export function usePendingFacts(patientId: string) {
+  return useQuery({
+    queryKey: ['patients', patientId, 'pending-facts'],
+    queryFn: () => api<PendingProfileFact[]>(`/patients/${patientId}/pending-facts`),
+  })
+}
+
+function invalidatePendingFactQueries(queryClient: ReturnType<typeof useQueryClient>, patientId: string) {
+  queryClient.invalidateQueries({ queryKey: ['patients', patientId] })
+  queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'pending-facts'] })
+  queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'documents'] })
+  queryClient.invalidateQueries({ queryKey: ['patients'] })
+}
+
+export function useApprovePendingFact(patientId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (fieldId: string) =>
-      api<ProfileField>(`/patients/${patientId}/profile-fields/${fieldId}/acknowledge-contradiction`, {
+    mutationFn: ({ factId, value }: { factId: string; value?: string }) =>
+      api<PendingProfileFact>(`/patients/${patientId}/pending-facts/${factId}/approve`, {
+        method: 'POST',
+        body: { value: value ?? null },
+      }),
+    onSuccess: () => invalidatePendingFactQueries(queryClient, patientId),
+  })
+}
+
+export function useRejectPendingFact(patientId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (factId: string) =>
+      api<PendingProfileFact>(`/patients/${patientId}/pending-facts/${factId}/reject`, {
         method: 'POST',
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['patients', patientId] })
-      queryClient.invalidateQueries({ queryKey: ['patients'] })
-    },
+    onSuccess: () => invalidatePendingFactQueries(queryClient, patientId),
   })
 }

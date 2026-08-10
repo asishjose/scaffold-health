@@ -19,7 +19,11 @@ from app.patients.schemas import (
 )
 from app.profile import commands as profile_commands
 from app.profile import derived
-from app.profile.schemas import ProfileFieldResponse
+from app.profile.schemas import (
+    PendingProfileFactResponse,
+    ProfileFieldResponse,
+    ResolvePendingFactRequest,
+)
 from app.query_api import patient as patient_queries
 from app.query_api import therapist as therapist_queries
 
@@ -96,8 +100,8 @@ def get_patient(
         window_start = now - timedelta(days=derived.ADHERENCE_WINDOW_DAYS)
         recent_checkin_count = sum(1 for c in checkins if c.submitted_at >= window_start)
         needs_review = derived.compute_needs_review_reasons(
-            has_contradiction=any(
-                f.is_contradiction and f.acknowledged_at is None for f in profile_fields
+            has_pending_extraction=therapist_queries.has_pending_facts(
+                db, therapist_id=current_user.id, patient_id=patient_id
             ),
             has_recent_assistant_redirect=therapist_queries.has_recent_assistant_redirect(
                 db, therapist_id=current_user.id, patient_id=patient_id, window_start=window_start
@@ -181,29 +185,80 @@ def advance_phase(
     return PhaseAdvanceResponse.model_validate(patient)
 
 
-@router.post(
-    "/{patient_id}/profile-fields/{field_id}/acknowledge-contradiction",
-    response_model=ProfileFieldResponse,
-)
-def acknowledge_contradiction(
+@router.get("/{patient_id}/pending-facts", response_model=list[PendingProfileFactResponse])
+def list_pending_facts(
     patient_id: uuid.UUID,
-    field_id: uuid.UUID,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> ProfileFieldResponse:
+) -> list[PendingProfileFactResponse]:
+    require_role(current_user, "therapist")
+
+    patient = therapist_queries.get_patient_detail(
+        db, therapist_id=current_user.id, patient_id=patient_id
+    )
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    facts = therapist_queries.list_pending_facts(
+        db, therapist_id=current_user.id, patient_id=patient_id
+    )
+    return [PendingProfileFactResponse.model_validate(fact) for fact in facts]
+
+
+@router.post(
+    "/{patient_id}/pending-facts/{fact_id}/approve", response_model=PendingProfileFactResponse
+)
+def approve_pending_fact(
+    patient_id: uuid.UUID,
+    fact_id: uuid.UUID,
+    payload: ResolvePendingFactRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PendingProfileFactResponse:
     require_role(current_user, "therapist")
 
     try:
-        field = profile_commands.acknowledge_contradiction(
-            db, patient_id=patient_id, therapist_id=current_user.id, field_id=field_id
+        fact = profile_commands.approve_pending_fact(
+            db,
+            patient_id=patient_id,
+            therapist_id=current_user.id,
+            fact_id=fact_id,
+            edited_value=payload.value,
         )
-    except profile_commands.ProfileFieldNotFound as exc:
+    except profile_commands.PendingFactNotFound as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Profile field not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pending fact not found"
         ) from exc
-    except profile_commands.NotAContradiction as exc:
+    except profile_commands.PendingFactAlreadyResolved as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Profile field is not a contradiction"
+            status_code=status.HTTP_409_CONFLICT, detail="Pending fact already resolved"
         ) from exc
 
-    return ProfileFieldResponse.model_validate(field)
+    return PendingProfileFactResponse.model_validate(fact)
+
+
+@router.post(
+    "/{patient_id}/pending-facts/{fact_id}/reject", response_model=PendingProfileFactResponse
+)
+def reject_pending_fact(
+    patient_id: uuid.UUID,
+    fact_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PendingProfileFactResponse:
+    require_role(current_user, "therapist")
+
+    try:
+        fact = profile_commands.reject_pending_fact(
+            db, patient_id=patient_id, therapist_id=current_user.id, fact_id=fact_id
+        )
+    except profile_commands.PendingFactNotFound as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pending fact not found"
+        ) from exc
+    except profile_commands.PendingFactAlreadyResolved as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Pending fact already resolved"
+        ) from exc
+
+    return PendingProfileFactResponse.model_validate(fact)
