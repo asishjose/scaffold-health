@@ -7,6 +7,7 @@ Usage (from backend/, with GROQ_API_KEY set):
 """
 
 import json
+import math
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -26,16 +27,56 @@ MAX_ATTEMPTS = 4
 RETRY_BACKOFF_SECONDS = 15
 
 
-def _extract_facts_with_retry(text: str, schema: list[str]) -> list[ExtractedFact]:
+def _extract_facts_with_retry(text: str, schema: list[str]) -> tuple[list[ExtractedFact], float]:
+    """Returns (facts, latency_seconds) where latency times only the final
+    successful call — retry backoff sleep and earlier failed attempts are
+    operational noise, not extraction latency.
+    """
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        start = time.perf_counter()
         try:
-            return extract_facts(text, schema=schema)
+            facts = extract_facts(text, schema=schema)
+            return facts, time.perf_counter() - start
         except LLMExtractionError as exc:
             if attempt == MAX_ATTEMPTS:
                 raise
             print(f"  attempt {attempt} failed ({exc}); retrying in {RETRY_BACKOFF_SECONDS}s")
             time.sleep(RETRY_BACKOFF_SECONDS)
     raise AssertionError("unreachable")
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    k = (len(ordered) - 1) * pct
+    lo, hi = math.floor(k), math.ceil(k)
+    if lo == hi:
+        return ordered[int(k)]
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo)
+
+
+def _normalize_whitespace(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _check_evidence(facts: list[ExtractedFact], text: str) -> tuple[int, int, list[dict]]:
+    """A fact's source_quote must be a verbatim span of the note text (per
+    the extraction prompt's instruction) — this is a deterministic check for
+    whether the model actually quoted vs. paraphrased/hallucinated. Whitespace
+    is normalized before comparing since the golden notes are hand-wrapped
+    with line breaks mid-sentence, which the model naturally collapses when
+    it reproduces a quote — that's a formatting artifact, not a mismatch.
+    """
+    normalized_text = _normalize_whitespace(text)
+    valid = 0
+    invalid: list[dict] = []
+    for fact in facts:
+        if _normalize_whitespace(fact.source_quote) in normalized_text:
+            valid += 1
+        else:
+            invalid.append({"field_name": fact.field_name, "source_quote": fact.source_quote})
+    return valid, len(facts), invalid
 
 
 def _matches(value: str, keywords: list[str]) -> bool:
@@ -97,16 +138,20 @@ def main() -> None:
 
     note_paths = sorted(NOTES_DIR.glob("*.txt"))
     skipped_notes: list[str] = []
+    latencies: list[float] = []
+    evidence_valid_total = 0
+    evidence_checked_total = 0
     for note_path in note_paths:
         text = note_path.read_text()
         labels = labels_by_note.get(note_path.name, [])
 
         try:
-            facts = _extract_facts_with_retry(text, schema=EXTRACTABLE_FIELDS)
+            facts, latency = _extract_facts_with_retry(text, schema=EXTRACTABLE_FIELDS)
         except LLMExtractionError as exc:
             print(f"skipping {note_path.name}: {exc}")
             skipped_notes.append(note_path.name)
             continue
+        latencies.append(latency)
 
         extracted_by_field: dict[str, list[str]] = defaultdict(list)
         for fact in facts:
@@ -117,17 +162,40 @@ def main() -> None:
             for key in ("tp", "fp", "fn"):
                 totals[field_name][key] += counts[key]
 
+        evidence_valid, evidence_checked, invalid_quotes = _check_evidence(facts, text)
+        evidence_valid_total += evidence_valid
+        evidence_checked_total += evidence_checked
+
         note_reports.append(
             {
                 "note": note_path.name,
                 "extracted": {k: v for k, v in extracted_by_field.items()},
                 "counts": {k: dict(v) for k, v in note_counts.items()},
+                "latency_seconds": latency,
+                "evidence": {
+                    "valid": evidence_valid,
+                    "total": evidence_checked,
+                    "invalid_quotes": invalid_quotes,
+                },
             }
         )
-        print(f"scored {note_path.name} ({len(facts)} facts extracted)")
+        print(f"scored {note_path.name} ({len(facts)} facts extracted, {latency:.2f}s)")
 
     if skipped_notes:
         print(f"\n{len(skipped_notes)} note(s) skipped after repeated failures: {skipped_notes}")
+
+    document_success_rate = (
+        (len(note_paths) - len(skipped_notes)) / len(note_paths) if note_paths else 0.0
+    )
+    evidence_validity_rate = (
+        evidence_valid_total / evidence_checked_total if evidence_checked_total else 0.0
+    )
+    latency_p95 = _percentile(latencies, 0.95)
+    latency_mean = sum(latencies) / len(latencies) if latencies else 0.0
+
+    print(f"\ndocument success rate: {document_success_rate:.2%}")
+    print(f"evidence validity rate: {evidence_validity_rate:.2%}")
+    print(f"latency: mean {latency_mean:.2f}s, p95 {latency_p95:.2f}s")
 
     print()
     print(f"{'field':<22}{'precision':>10}{'recall':>10}{'f1':>10}{'tp':>6}{'fp':>6}{'fn':>6}")
@@ -162,6 +230,13 @@ def main() -> None:
                 },
                 "notes": note_reports,
                 "skipped_notes": skipped_notes,
+                "document_success_rate": document_success_rate,
+                "evidence_validity_rate": evidence_validity_rate,
+                "latency_seconds": {
+                    "mean": latency_mean,
+                    "p95": latency_p95,
+                    "values": latencies,
+                },
             },
             indent=2,
         )

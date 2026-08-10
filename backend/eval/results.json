@@ -2,19 +2,19 @@
   "per_field": {
     "active_concerns": {
       "tp": 3,
-      "fp": 4,
+      "fp": 0,
       "fn": 0,
-      "precision": 0.42857142857142855,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.6
+      "f1": 1.0
     },
     "active_restrictions": {
       "tp": 6,
-      "fp": 1,
+      "fp": 0,
       "fn": 0,
-      "precision": 0.8571428571428571,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.923076923076923
+      "f1": 1.0
     },
     "injury": {
       "tp": 3,
@@ -26,35 +26,35 @@
     },
     "milestones": {
       "tp": 3,
-      "fp": 1,
+      "fp": 2,
       "fn": 0,
-      "precision": 0.75,
+      "precision": 0.6,
       "recall": 1.0,
-      "f1": 0.8571428571428571
+      "f1": 0.7499999999999999
     },
     "surgery_date": {
       "tp": 2,
-      "fp": 1,
+      "fp": 0,
       "fn": 0,
-      "precision": 0.6666666666666666,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.8
+      "f1": 1.0
     }
   },
   "overall": {
     "tp": 17,
-    "fp": 9,
+    "fp": 4,
     "fn": 0,
-    "precision": 0.6538461538461539,
+    "precision": 0.8095238095238095,
     "recall": 1.0,
-    "f1": 0.7906976744186047
+    "f1": 0.8947368421052632
   },
   "notes": [
     {
       "note": "note_01_mri_report.txt",
       "extracted": {
         "injury": [
-          "Complete full-thickness tear of the anterior cruciate ligament"
+          "Complete ACL rupture"
         ]
       },
       "counts": {
@@ -63,17 +63,23 @@
           "fp": 0,
           "fn": 0
         }
+      },
+      "latency_seconds": 1.0312794430001304,
+      "evidence": {
+        "valid": 1,
+        "total": 1,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_02_discharge_summary.txt",
       "extracted": {
         "injury": [
-          "Arthroscopic ACL reconstruction, right knee"
+          "Arthroscopic ACL reconstruction, right knee, using autologous patellar tendon graft"
         ],
         "active_restrictions": [
-          "Non-weight-bearing on the right lower extremity for the first two weeks",
-          "Hinged knee brace must be worn locked in full extension at all times"
+          "remain non-weight-bearing on the right lower extremity for the first two weeks following surgery",
+          "wear a hinged knee brace locked in full extension at all times, including while sleeping, until the follow-up appointment"
         ]
       },
       "counts": {
@@ -87,16 +93,19 @@
           "fp": 1,
           "fn": 0
         }
+      },
+      "latency_seconds": 1.83230752999998,
+      "evidence": {
+        "valid": 3,
+        "total": 3,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_03_pt_progress_extension.txt",
       "extracted": {
         "milestones": [
-          "Achieved full passive knee extension (0 degrees)"
-        ],
-        "active_concerns": [
-          "Gait remains slightly antalgic"
+          "Full passive knee extension (0 degrees) bilaterally"
         ]
       },
       "counts": {
@@ -104,36 +113,34 @@
           "tp": 1,
           "fp": 0,
           "fn": 0
-        },
-        "active_concerns": {
-          "tp": 0,
-          "fp": 1,
-          "fn": 0
         }
+      },
+      "latency_seconds": 0.9547608159998617,
+      "evidence": {
+        "valid": 1,
+        "total": 1,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_04_concern_swelling.txt",
       "extracted": {
         "active_concerns": [
-          "Persistent joint effusion",
-          "Knee has been more swollen than usual over the past three days"
-        ],
-        "active_restrictions": [
-          "Modify exercise intensity"
+          "persistent joint effusion (increased swelling)"
         ]
       },
       "counts": {
         "active_concerns": {
           "tp": 1,
-          "fp": 1,
-          "fn": 0
-        },
-        "active_restrictions": {
-          "tp": 0,
-          "fp": 1,
+          "fp": 0,
           "fn": 0
         }
+      },
+      "latency_seconds": 1.0013397030002125,
+      "evidence": {
+        "valid": 1,
+        "total": 1,
+        "invalid_quotes": []
       }
     },
     {
@@ -157,17 +164,23 @@
           "fp": 0,
           "fn": 0
         }
+      },
+      "latency_seconds": 2.428274370999816,
+      "evidence": {
+        "valid": 2,
+        "total": 2,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_06_restriction_and_milestone.txt",
       "extracted": {
-        "milestones": [
-          "Single-leg squat performed with good control and minimal compensation",
-          "Hop testing limb symmetry index at 88%"
-        ],
         "active_restrictions": [
-          "Pivoting, cutting, and contact sports remain restricted"
+          "Pivoting, cutting, and contact sports remain restricted until completion of the full return-to-sport testing battery"
+        ],
+        "milestones": [
+          "Single-leg squat performed with good control and minimal compensation, meeting the strength criteria for this phase",
+          "Hop testing limb symmetry index at 88%"
         ]
       },
       "counts": {
@@ -181,6 +194,12 @@
           "fp": 0,
           "fn": 0
         }
+      },
+      "latency_seconds": 7.362194113999976,
+      "evidence": {
+        "valid": 3,
+        "total": 3,
+        "invalid_quotes": []
       }
     },
     {
@@ -191,6 +210,9 @@
         ],
         "surgery_date": [
           "2026-01-09"
+        ],
+        "milestones": [
+          "Discharged on post-operative day zero"
         ]
       },
       "counts": {
@@ -203,41 +225,63 @@
           "tp": 0,
           "fp": 1,
           "fn": 0
+        },
+        "milestones": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 0
         }
+      },
+      "latency_seconds": 13.614315253999848,
+      "evidence": {
+        "valid": 3,
+        "total": 3,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_08_no_extractable_facts.txt",
       "extracted": {},
-      "counts": {}
+      "counts": {},
+      "latency_seconds": 7.904891617999965,
+      "evidence": {
+        "valid": 0,
+        "total": 0,
+        "invalid_quotes": []
+      }
     },
     {
       "note": "note_09_concern_instability.txt",
       "extracted": {
         "active_concerns": [
-          "Patient reports an occasional sensation of the knee giving way when descending stairs",
-          "Patient is guarded during single-leg stance testing on the involved side"
+          "occasional sensation of knee giving way when descending stairs"
         ]
       },
       "counts": {
         "active_concerns": {
           "tp": 1,
-          "fp": 1,
+          "fp": 0,
           "fn": 0
         }
+      },
+      "latency_seconds": 6.221076721000145,
+      "evidence": {
+        "valid": 1,
+        "total": 1,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_10_multi_field.txt",
       "extracted": {
-        "milestones": [
-          "Achieved 120 degrees of active knee flexion"
+        "active_concerns": [
+          "mild anterior knee pain with kneeling and stair descent"
         ],
         "active_restrictions": [
-          "Avoid full weight-bearing squats"
+          "avoid full weight-bearing squats"
         ],
-        "active_concerns": [
-          "Mild anterior knee pain with kneeling and stair descent"
+        "milestones": [
+          "120 degrees of active knee flexion"
         ]
       },
       "counts": {
@@ -256,6 +300,12 @@
           "fp": 0,
           "fn": 0
         }
+      },
+      "latency_seconds": 7.559087256000112,
+      "evidence": {
+        "valid": 3,
+        "total": 3,
+        "invalid_quotes": []
       }
     },
     {
@@ -263,9 +313,6 @@
       "extracted": {
         "injury": [
           "Anterior cruciate ligament rupture, left knee"
-        ],
-        "surgery_date": [
-          "null"
         ]
       },
       "counts": {
@@ -273,23 +320,21 @@
           "tp": 1,
           "fp": 0,
           "fn": 0
-        },
-        "surgery_date": {
-          "tp": 0,
-          "fp": 1,
-          "fn": 0
         }
+      },
+      "latency_seconds": 7.302617428000076,
+      "evidence": {
+        "valid": 1,
+        "total": 1,
+        "invalid_quotes": []
       }
     },
     {
       "note": "note_12_weight_bearing_restriction.txt",
       "extracted": {
         "active_restrictions": [
-          "Strict toe-touch weight-bearing only on the operative leg",
-          "Reinforced brace must remain locked in extension for ambulation"
-        ],
-        "active_concerns": [
-          "Mild swelling"
+          "strict toe-touch weight-bearing only on the operative leg until cleared by the surgeon at the two-week follow-up",
+          "brace must remain locked in extension for ambulation"
         ]
       },
       "counts": {
@@ -297,14 +342,35 @@
           "tp": 2,
           "fp": 0,
           "fn": 0
-        },
-        "active_concerns": {
-          "tp": 0,
-          "fp": 1,
-          "fn": 0
         }
+      },
+      "latency_seconds": 5.411542532000112,
+      "evidence": {
+        "valid": 2,
+        "total": 2,
+        "invalid_quotes": []
       }
     }
   ],
-  "skipped_notes": []
+  "skipped_notes": [],
+  "document_success_rate": 1.0,
+  "evidence_validity_rate": 1.0,
+  "latency_seconds": {
+    "mean": 5.21864056550002,
+    "p95": 10.474132254199908,
+    "values": [
+      1.0312794430001304,
+      1.83230752999998,
+      0.9547608159998617,
+      1.0013397030002125,
+      2.428274370999816,
+      7.362194113999976,
+      13.614315253999848,
+      7.904891617999965,
+      6.221076721000145,
+      7.559087256000112,
+      7.302617428000076,
+      5.411542532000112
+    ]
+  }
 }
