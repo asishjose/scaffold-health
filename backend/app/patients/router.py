@@ -96,6 +96,9 @@ def get_patient(
         recent_checkin_count = sum(1 for c in checkins if c.submitted_at >= window_start)
         needs_review = derived.compute_needs_review_reasons(
             has_contradiction=any(f.is_contradiction for f in profile_fields),
+            has_recent_assistant_redirect=therapist_queries.has_recent_assistant_redirect(
+                db, therapist_id=current_user.id, patient_id=patient_id, window_start=window_start
+            ),
             invite_accepted_at=patient.invite_accepted_at,
             is_discharged=patient.current_phase == therapist_queries.DISCHARGED_PHASE,
             recent_checkin_count=recent_checkin_count,

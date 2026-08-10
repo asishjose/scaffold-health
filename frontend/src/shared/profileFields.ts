@@ -14,6 +14,7 @@ const NEEDS_REVIEW_VARIANTS: Record<string, 'destructive' | 'warning'> = {
   Contradiction: 'destructive',
   'Adherence drop': 'warning',
   'No check-in': 'warning',
+  'Symptom question': 'destructive',
 }
 
 export function needsReviewVariant(reason: string): 'destructive' | 'warning' {

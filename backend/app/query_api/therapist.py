@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.assistant.models import AssistantInteraction
 from app.checkins.models import CheckIn
 from app.documents.models import Document
 from app.patients.events import PHASE_SEQUENCE
@@ -54,6 +55,25 @@ def list_checkins(db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
             .where(CheckIn.patient_id == patient_id, Patient.therapist_id == therapist_id)
             .order_by(CheckIn.submitted_at)
         ).scalars()
+    )
+
+
+def has_recent_assistant_redirect(
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID, window_start: datetime
+) -> bool:
+    return (
+        db.execute(
+            select(AssistantInteraction.id)
+            .join(Patient, Patient.id == AssistantInteraction.patient_id)
+            .where(
+                AssistantInteraction.patient_id == patient_id,
+                Patient.therapist_id == therapist_id,
+                AssistantInteraction.redirected.is_(True),
+                AssistantInteraction.asked_at >= window_start,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
     )
 
 
@@ -162,9 +182,23 @@ def list_needs_review_reasons(
         ).all()
     )
 
+    redirect_patient_ids = set(
+        db.execute(
+            select(AssistantInteraction.patient_id)
+            .join(Patient, Patient.id == AssistantInteraction.patient_id)
+            .where(
+                Patient.therapist_id == therapist_id,
+                AssistantInteraction.redirected.is_(True),
+                AssistantInteraction.asked_at >= window_start,
+            )
+            .distinct()
+        ).scalars()
+    )
+
     return {
         patient.id: derived.compute_needs_review_reasons(
             has_contradiction=patient.id in contradiction_patient_ids,
+            has_recent_assistant_redirect=patient.id in redirect_patient_ids,
             invite_accepted_at=patient.invite_accepted_at,
             is_discharged=patient.current_phase == DISCHARGED_PHASE,
             recent_checkin_count=recent_checkin_counts.get(patient.id, 0),
