@@ -46,6 +46,10 @@ class ProfileField(Base):
 
     is_contradiction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set once a therapist reviews a contradiction via ContradictionAcknowledged
+    # (PRD §6.3 exception: the one needs_review reason that isn't purely
+    # derived, since a contradiction must be explicitly decided, not time out).
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

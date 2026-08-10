@@ -4,12 +4,15 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import uuid
+
 from app.core.llm_client import ExtractedFact
 from app.documents.models import Document
 from app.event_store.store import append_event
 from app.patients.models import Patient
 from app.profile import projector
 from app.profile.events import (
+    CONTRADICTION_ACKNOWLEDGED,
     EXTRACTABLE_FIELDS,
     FIELD_MERGE_STRATEGIES,
     PROFILE_FIELDS_MERGED,
@@ -21,6 +24,14 @@ from app.profile.models import ProfileField
 from app.timeline import projector as timeline_projector
 
 EXTRACTOR_VERSION = "gemini-fact-extraction-v1"
+
+
+class ProfileFieldNotFound(Exception):
+    pass
+
+
+class NotAContradiction(Exception):
+    pass
 
 
 def merge_extracted_facts(
@@ -145,3 +156,41 @@ def _dedupe_against_existing(
         seen.add(key)
         deduped.append(fact)
     return deduped
+
+
+def acknowledge_contradiction(
+    db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUID, field_id: uuid.UUID
+) -> ProfileField:
+    """Records a therapist's explicit review of one contradictory
+    ProfileField row (PRD §6.3: a contradiction is never a generic flag and
+    never auto-resolves — it stays in needs_review until a therapist
+    decides). Idempotent: acknowledging an already-acknowledged row is a
+    no-op rather than an error, since two concurrent tab reviews shouldn't
+    surface as a failure.
+    """
+    field = db.execute(
+        select(ProfileField).where(
+            ProfileField.id == field_id,
+            ProfileField.patient_id == patient_id,
+            ProfileField.therapist_id == therapist_id,
+        )
+    ).scalar_one_or_none()
+    if field is None:
+        raise ProfileFieldNotFound()
+    if not field.is_contradiction:
+        raise NotAContradiction()
+    if field.acknowledged_at is not None:
+        return field
+
+    event = append_event(
+        db,
+        stream_id=patient_id,
+        stream_type=STREAM_TYPE_PROFILE,
+        event_type=CONTRADICTION_ACKNOWLEDGED,
+        payload={"profile_field_id": str(field.id)},
+        actor_id=therapist_id,
+        actor_role="therapist",
+    )
+    [field] = projector.apply(db, event)
+    db.commit()
+    return field

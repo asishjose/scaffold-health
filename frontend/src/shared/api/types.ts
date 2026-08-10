@@ -52,6 +52,7 @@ export interface ProfileField {
   extracted_at: string
   is_contradiction: boolean
   superseded_at: string | null
+  acknowledged_at: string | null
 }
 
 export interface PatientDetail {

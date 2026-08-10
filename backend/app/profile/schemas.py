@@ -18,3 +18,4 @@ class ProfileFieldResponse(BaseModel):
     extracted_at: datetime
     is_contradiction: bool
     superseded_at: datetime | None
+    acknowledged_at: datetime | None
