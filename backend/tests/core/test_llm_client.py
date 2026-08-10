@@ -53,8 +53,13 @@ def test_extract_facts_raises_on_invalid_json(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_extract_facts_raises_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Both providers unconfigured, so the Gemini fallback can't paper over
+    # the missing Groq key either — this exercises the "both failed" path
+    # without making a real network call.
     monkeypatch.setattr(llm_client.settings, "groq_api_key", None)
     monkeypatch.setattr(llm_client, "_client", None)
+    monkeypatch.setattr(llm_client.settings, "gemini_api_key", None)
+    monkeypatch.setattr(llm_client, "_gemini_client", None)
 
     with pytest.raises(LLMExtractionError, match="GROQ_API_KEY"):
         extract_facts("text", schema=["milestones"])
@@ -139,7 +144,7 @@ def test_embed_text_returns_vector(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_embed_text_raises_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_client.settings, "gemini_api_key", None)
-    monkeypatch.setattr(llm_client, "_embedding_client", None)
+    monkeypatch.setattr(llm_client, "_gemini_client", None)
 
     with pytest.raises(LLMExtractionError, match="GEMINI_API_KEY"):
         embed_text("text")
@@ -156,8 +161,42 @@ def test_embed_text_raises_when_response_has_no_embeddings(monkeypatch: pytest.M
     class _StubClient:
         models = _StubModels()
 
-    monkeypatch.setattr(llm_client, "_embedding_client", _StubClient())
+    monkeypatch.setattr(llm_client, "_gemini_client", _StubClient())
     monkeypatch.setattr(llm_client.settings, "gemini_api_key", "fake-key")
 
     with pytest.raises(LLMExtractionError, match="no embeddings"):
         embed_text("text")
+
+
+def test_extract_facts_falls_back_to_gemini_when_groq_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _groq_fails(text, *, allowed_fields):
+        raise LLMExtractionError("Groq request failed: boom")
+
+    monkeypatch.setattr(llm_client, "_generate", _groq_fails)
+    monkeypatch.setattr(
+        llm_client,
+        "_generate_gemini",
+        lambda text, *, allowed_fields: (
+            '{"facts": [{"field_name": "milestones", "value": "Full extension", '
+            '"confidence": 0.9, "source_quote": "quote"}]}'
+        ),
+    )
+
+    facts = extract_facts("some clinical text", schema=["milestones"])
+
+    assert len(facts) == 1
+    assert facts[0].value == "Full extension"
+
+
+def test_extract_facts_raises_when_both_providers_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _groq_fails(text, *, allowed_fields):
+        raise LLMExtractionError("Groq request failed: boom")
+
+    def _gemini_fails(text, *, allowed_fields):
+        raise LLMExtractionError("Gemini request failed: boom")
+
+    monkeypatch.setattr(llm_client, "_generate", _groq_fails)
+    monkeypatch.setattr(llm_client, "_generate_gemini", _gemini_fails)
+
+    with pytest.raises(LLMExtractionError, match="Groq failed .*Gemini fallback also failed"):
+        extract_facts("text", schema=["milestones"])

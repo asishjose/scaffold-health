@@ -1,8 +1,11 @@
-"""Provider-agnostic LLM interface (PRD §9). Groq handles fact extraction
-and brief generation; Gemini fills the one gap Groq's API doesn't cover
-(embeddings). Callers depend only on `extract_facts` / `generate_brief_text`
-/ `embed_text`, never on provider-specific types, so changing either
-provider later touches only this file.
+"""Provider-agnostic LLM interface (PRD §9). Groq is the primary provider
+for text generation (fact extraction, brief generation, patient/copilot
+answers); Gemini is both the fallback provider for those same calls if
+Groq fails, and the sole provider for embeddings (Groq has no embeddings
+API). Callers depend only on `extract_facts` / `generate_brief_text` /
+`embed_text` / `answer_patient_question` / `answer_copilot_message`, never
+on provider-specific types, so changing either provider later touches only
+this file.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -143,7 +146,7 @@ Produce your response as JSON with exactly one field:
 - answer: a concise, plain-language answer for the therapist."""
 
 _client: "Groq | None" = None
-_embedding_client: "genai.Client | None" = None
+_gemini_client: "genai.Client | None" = None
 
 
 def _get_client() -> "Groq":
@@ -158,19 +161,39 @@ def _get_client() -> "Groq":
     return _client
 
 
-def _get_embedding_client() -> "genai.Client":
-    global _embedding_client
-    if _embedding_client is not None:
-        return _embedding_client
+def _get_gemini_client() -> "genai.Client":
+    global _gemini_client
+    if _gemini_client is not None:
+        return _gemini_client
     if not settings.gemini_api_key:
         raise LLMExtractionError("GEMINI_API_KEY is not configured")
     if genai is None:
         raise LLMExtractionError("google-genai package is not installed")
-    _embedding_client = genai.Client(
+    _gemini_client = genai.Client(
         api_key=settings.gemini_api_key,
         http_options=genai_types.HttpOptions(timeout=60_000),
     )
-    return _embedding_client
+    return _gemini_client
+
+
+def _with_fallback(primary, fallback) -> str:
+    """Run `primary` (Groq), falling back to `fallback` (Gemini) only if
+    the primary call itself raises — auth failure, timeout, rate limit, or
+    any other request-level error. A downstream JSON-parsing error is not
+    retried here: that happens outside this helper, since a malformed
+    response from one provider says nothing about whether the other would
+    do better, and re-running the same-shaped prompt against a fallback
+    provider is the only case where switching providers can plausibly help.
+    """
+    try:
+        return primary()
+    except LLMExtractionError as primary_exc:
+        try:
+            return fallback()
+        except LLMExtractionError as fallback_exc:
+            raise LLMExtractionError(
+                f"Groq failed ({primary_exc}); Gemini fallback also failed ({fallback_exc})"
+            ) from fallback_exc
 
 
 def extract_facts(text: str, schema: list[str]) -> list[ExtractedFact]:
@@ -179,7 +202,10 @@ def extract_facts(text: str, schema: list[str]) -> list[ExtractedFact]:
     applies, contradiction handling — happens entirely in app/profile; the
     LLM never decides how a conflict is resolved (PRD §9).
     """
-    raw = _generate(text, allowed_fields=schema)
+    raw = _with_fallback(
+        lambda: _generate(text, allowed_fields=schema),
+        lambda: _generate_gemini(text, allowed_fields=schema),
+    )
     try:
         payload = _ExtractedFactsPayload.model_validate_json(raw)
     except ValueError as exc:
@@ -198,11 +224,19 @@ def generate_brief_text(
     already-computed inputs (PRD §9) — the LLM only narrates and suggests
     discussion points; it never decides flags or clinical facts itself.
     """
-    raw = _generate_brief(
-        profile_summary=profile_summary,
-        flags=flags,
-        recent_events_summary=recent_events_summary,
-        note_excerpts=note_excerpts,
+    raw = _with_fallback(
+        lambda: _generate_brief(
+            profile_summary=profile_summary,
+            flags=flags,
+            recent_events_summary=recent_events_summary,
+            note_excerpts=note_excerpts,
+        ),
+        lambda: _generate_brief_gemini(
+            profile_summary=profile_summary,
+            flags=flags,
+            recent_events_summary=recent_events_summary,
+            note_excerpts=note_excerpts,
+        ),
     )
     try:
         return BriefSections.model_validate_json(raw)
@@ -216,7 +250,12 @@ def answer_patient_question(*, question: str, education_excerpts: list[str]) -> 
     check only — the authoritative redirect decision is the deterministic keyword \
     gate in app/assistant/urgent_detection.py, checked before this is ever called.
     """
-    raw = _generate_assistant_answer(question=question, education_excerpts=education_excerpts)
+    raw = _with_fallback(
+        lambda: _generate_assistant_answer(question=question, education_excerpts=education_excerpts),
+        lambda: _generate_assistant_answer_gemini(
+            question=question, education_excerpts=education_excerpts
+        ),
+    )
     try:
         return AssistantAnswer.model_validate_json(raw)
     except ValueError as exc:
@@ -238,13 +277,23 @@ def answer_copilot_message(
     `history` (prior turns of this same conversation, oldest first) for
     multi-turn continuity.
     """
-    raw = _generate_copilot_answer(
-        question=question,
-        profile_summary=profile_summary,
-        recent_activity_summary=recent_activity_summary,
-        patient_note_excerpts=patient_note_excerpts,
-        guideline_excerpts=guideline_excerpts,
-        history=history,
+    raw = _with_fallback(
+        lambda: _generate_copilot_answer(
+            question=question,
+            profile_summary=profile_summary,
+            recent_activity_summary=recent_activity_summary,
+            patient_note_excerpts=patient_note_excerpts,
+            guideline_excerpts=guideline_excerpts,
+            history=history,
+        ),
+        lambda: _generate_copilot_answer_gemini(
+            question=question,
+            profile_summary=profile_summary,
+            recent_activity_summary=recent_activity_summary,
+            patient_note_excerpts=patient_note_excerpts,
+            guideline_excerpts=guideline_excerpts,
+            history=history,
+        ),
     )
     try:
         return CopilotAnswer.model_validate_json(raw)
@@ -265,7 +314,7 @@ def _embed(text: str, *, task_type: str) -> list[float]:
     """Thin seam around the Gemini SDK embedding call, isolated so tests
     can monkeypatch it without a network call, mirroring `_generate`.
     """
-    client = _get_embedding_client()
+    client = _get_gemini_client()
     try:
         response = client.models.embed_content(
             model=settings.gemini_embedding_model,
@@ -280,6 +329,46 @@ def _embed(text: str, *, task_type: str) -> list[float]:
     if not response.embeddings:
         raise LLMExtractionError("Gemini returned no embeddings")
     return list(response.embeddings[0].values)
+
+
+def _brief_prompt(
+    *,
+    profile_summary: str,
+    flags: list[str],
+    recent_events_summary: str,
+    note_excerpts: list[str],
+) -> str:
+    excerpts_block = "\n---\n".join(note_excerpts) if note_excerpts else "none"
+    return (
+        f"Knowledge Profile:\n{profile_summary}\n\n"
+        f"Flagged review reasons: {', '.join(flags) if flags else 'none'}\n\n"
+        f"Events since last visit:\n{recent_events_summary}\n\n"
+        f"Relevant note excerpts:\n{excerpts_block}"
+    )
+
+
+def _assistant_prompt(*, question: str, education_excerpts: list[str]) -> str:
+    excerpts_block = "\n---\n".join(education_excerpts) if education_excerpts else "none"
+    return f"Patient question:\n{question}\n\nRelevant patient-education excerpts:\n{excerpts_block}"
+
+
+def _copilot_prompt(
+    *,
+    question: str,
+    profile_summary: str,
+    recent_activity_summary: str,
+    patient_note_excerpts: list[str],
+    guideline_excerpts: list[str],
+) -> str:
+    notes_block = "\n---\n".join(patient_note_excerpts) if patient_note_excerpts else "none"
+    guidelines_block = "\n---\n".join(guideline_excerpts) if guideline_excerpts else "none"
+    return (
+        f"Knowledge Profile:\n{profile_summary}\n\n"
+        f"Recent activity:\n{recent_activity_summary}\n\n"
+        f"Relevant patient note excerpts:\n{notes_block}\n\n"
+        f"Relevant clinical guideline excerpts:\n{guidelines_block}\n\n"
+        f"Therapist's question:\n{question}"
+    )
 
 
 def _generate(text: str, *, allowed_fields: list[str]) -> str:
@@ -329,12 +418,11 @@ def _generate_brief(
     a network call, mirroring `_generate`.
     """
     client = _get_client()
-    excerpts_block = "\n---\n".join(note_excerpts) if note_excerpts else "none"
-    prompt = (
-        f"Knowledge Profile:\n{profile_summary}\n\n"
-        f"Flagged review reasons: {', '.join(flags) if flags else 'none'}\n\n"
-        f"Events since last visit:\n{recent_events_summary}\n\n"
-        f"Relevant note excerpts:\n{excerpts_block}"
+    prompt = _brief_prompt(
+        profile_summary=profile_summary,
+        flags=flags,
+        recent_events_summary=recent_events_summary,
+        note_excerpts=note_excerpts,
     )
     try:
         response = client.chat.completions.create(
@@ -377,14 +465,12 @@ def _generate_copilot_answer(
     turn-taking history.
     """
     client = _get_client()
-    notes_block = "\n---\n".join(patient_note_excerpts) if patient_note_excerpts else "none"
-    guidelines_block = "\n---\n".join(guideline_excerpts) if guideline_excerpts else "none"
-    prompt = (
-        f"Knowledge Profile:\n{profile_summary}\n\n"
-        f"Recent activity:\n{recent_activity_summary}\n\n"
-        f"Relevant patient note excerpts:\n{notes_block}\n\n"
-        f"Relevant clinical guideline excerpts:\n{guidelines_block}\n\n"
-        f"Therapist's question:\n{question}"
+    prompt = _copilot_prompt(
+        question=question,
+        profile_summary=profile_summary,
+        recent_activity_summary=recent_activity_summary,
+        patient_note_excerpts=patient_note_excerpts,
+        guideline_excerpts=guideline_excerpts,
     )
     try:
         response = client.chat.completions.create(
@@ -417,8 +503,7 @@ def _generate_assistant_answer(*, question: str, education_excerpts: list[str]) 
     network call, mirroring `_generate_brief`.
     """
     client = _get_client()
-    excerpts_block = "\n---\n".join(education_excerpts) if education_excerpts else "none"
-    prompt = f"Patient question:\n{question}\n\nRelevant patient-education excerpts:\n{excerpts_block}"
+    prompt = _assistant_prompt(question=question, education_excerpts=education_excerpts)
     try:
         response = client.chat.completions.create(
             model=settings.groq_model,
@@ -441,3 +526,95 @@ def _generate_assistant_answer(*, question: str, education_excerpts: list[str]) 
     if not raw:
         raise LLMExtractionError("Groq returned an empty response")
     return raw
+
+
+def _gemini_generate(*, system_instruction: str, contents, schema: type[BaseModel]) -> str:
+    """Thin seam around the Gemini SDK text-generation call, shared by all
+    four fallback functions below, mirroring the Groq `_generate*` seams so
+    tests can monkeypatch each fallback independently without a network call.
+    """
+    client = _get_gemini_client()
+    try:
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=contents,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=schema,
+            ),
+        )
+    except Exception as exc:
+        raise LLMExtractionError(f"Gemini request failed: {exc}") from exc
+    raw = response.text
+    if not raw:
+        raise LLMExtractionError("Gemini returned an empty response")
+    return raw
+
+
+def _generate_gemini(text: str, *, allowed_fields: list[str]) -> str:
+    return _gemini_generate(
+        system_instruction=_EXTRACTION_SYSTEM_INSTRUCTION.format(fields=", ".join(allowed_fields)),
+        contents=text,
+        schema=_ExtractedFactsPayload,
+    )
+
+
+def _generate_brief_gemini(
+    *,
+    profile_summary: str,
+    flags: list[str],
+    recent_events_summary: str,
+    note_excerpts: list[str],
+) -> str:
+    return _gemini_generate(
+        system_instruction=_BRIEF_SYSTEM_INSTRUCTION,
+        contents=_brief_prompt(
+            profile_summary=profile_summary,
+            flags=flags,
+            recent_events_summary=recent_events_summary,
+            note_excerpts=note_excerpts,
+        ),
+        schema=BriefSections,
+    )
+
+
+def _generate_assistant_answer_gemini(*, question: str, education_excerpts: list[str]) -> str:
+    return _gemini_generate(
+        system_instruction=_ASSISTANT_SYSTEM_INSTRUCTION,
+        contents=_assistant_prompt(question=question, education_excerpts=education_excerpts),
+        schema=AssistantAnswer,
+    )
+
+
+def _generate_copilot_answer_gemini(
+    *,
+    question: str,
+    profile_summary: str,
+    recent_activity_summary: str,
+    patient_note_excerpts: list[str],
+    guideline_excerpts: list[str],
+    history: list[dict[str, str]],
+) -> str:
+    """Gemini uses "model" rather than Groq/OpenAI's "assistant" as the
+    role name for prior turns, so `history` is remapped before being sent.
+    """
+    gemini_history = [
+        {
+            "role": "model" if turn["role"] == "assistant" else "user",
+            "parts": [{"text": turn["content"]}],
+        }
+        for turn in history
+    ]
+    prompt = _copilot_prompt(
+        question=question,
+        profile_summary=profile_summary,
+        recent_activity_summary=recent_activity_summary,
+        patient_note_excerpts=patient_note_excerpts,
+        guideline_excerpts=guideline_excerpts,
+    )
+    return _gemini_generate(
+        system_instruction=_COPILOT_SYSTEM_INSTRUCTION,
+        contents=[*gemini_history, {"role": "user", "parts": [{"text": prompt}]}],
+        schema=CopilotAnswer,
+    )
