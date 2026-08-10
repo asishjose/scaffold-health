@@ -11,7 +11,7 @@ from app.core.llm_client import LLMExtractionError, extract_facts
 from app.documents import commands
 from app.documents.models import Document
 from app.patients.models import Patient
-from app.profile.commands import merge_extracted_facts
+from app.profile.commands import MergeResult, merge_extracted_facts
 from app.profile.events import EXTRACTABLE_FIELDS
 from app.rag import commands as rag_commands
 
@@ -37,8 +37,12 @@ def process_document(self, document_id: str) -> None:
         document = db.get(Document, uuid.UUID(document_id))
         patient = db.get(Patient, document.patient_id)
         text = _extract_text(document.storage_path)
-        _run_fact_extraction(db, patient=patient, document=document, text=text)
-        _run_rag_indexing(db, patient=patient, document=document, text=text)
+        result = _run_fact_extraction(db, patient=patient, document=document, text=text)
+        if result is None or not result.staged:
+            _run_rag_indexing(db, patient=patient, document=document, text=text)
+        # else: at least one fact is pending review — indexing is deferred
+        # until it's resolved (documents.commands.maybe_trigger_deferred_rag_indexing),
+        # so unverified document content never becomes Copilot-searchable.
         commands.record_extraction_result(db, document_id=document.id, extracted_text=text)
     except LLMExtractionError as exc:
         db.rollback()
@@ -70,15 +74,17 @@ def _extract_text(storage_path: str) -> str:
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
-def _run_fact_extraction(db, *, patient: Patient, document: Document, text: str) -> None:
+def _run_fact_extraction(
+    db, *, patient: Patient, document: Document, text: str
+) -> MergeResult | None:
     if not text.strip():
-        return
+        return None
 
     facts = extract_facts(text, schema=EXTRACTABLE_FIELDS)
     if not facts:
-        return
+        return None
 
-    merge_extracted_facts(
+    return merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -102,3 +108,21 @@ def _run_rag_indexing(db, *, patient: Patient, document: Document, text: str) ->
     except Exception as exc:
         db.rollback()
         logger.warning("rag indexing failed for document=%s: %s", document.id, exc)
+
+
+@celery_app.task(name="documents.run_deferred_rag_indexing")
+def run_deferred_rag_indexing(document_id: str) -> None:
+    """Runs the RAG indexing that was skipped at upload time because the
+    document produced at least one pending fact. Dispatched once that
+    document's last pending fact is resolved (approved or rejected) — see
+    documents.commands.maybe_trigger_deferred_rag_indexing.
+    """
+    db = SessionLocal()
+    try:
+        document = db.get(Document, uuid.UUID(document_id))
+        if document is None or not document.extracted_text:
+            return
+        patient = db.get(Patient, document.patient_id)
+        _run_rag_indexing(db, patient=patient, document=document, text=document.extracted_text)
+    finally:
+        db.close()

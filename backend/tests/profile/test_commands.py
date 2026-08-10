@@ -15,11 +15,13 @@ from app.documents.models import Document
 from app.patients import commands as patient_commands
 from app.patients.models import Patient
 from app.profile.commands import (
-    NotAContradiction,
-    ProfileFieldNotFound,
-    acknowledge_contradiction,
+    PendingFactAlreadyResolved,
+    PendingFactNotFound,
+    approve_pending_fact,
     merge_extracted_facts,
+    reject_pending_fact,
 )
+from app.profile.events import PENDING_STATUS_APPROVED, PENDING_STATUS_REJECTED
 from app.profile.models import ProfileField
 
 FIXED_SURGERY_DATE = date.today() + timedelta(days=14)
@@ -193,10 +195,51 @@ def test_append_only_strategy_dedupes_identical_value(db: Session) -> None:
     assert len(current) == 1
 
 
+def test_high_confidence_non_contradicting_fact_auto_merges(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="milestones", value="Full extension achieved", confidence=0.9, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+
+    assert len(result.merged) == 1
+    assert result.staged == []
+
+
+def test_low_confidence_fact_is_staged_not_merged(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="milestones", value="Maybe full extension", confidence=0.4, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+
+    assert result.merged == []
+    assert len(result.staged) == 1
+    assert result.staged[0].is_low_confidence is True
+    assert result.staged[0].is_contradiction is False
+    assert _current_rows(db, patient_id=patient.id, field_name="milestones") == []
+
+
 def test_injury_freetext_phrasing_of_same_diagnosis_is_not_a_contradiction(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
 
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -211,14 +254,14 @@ def test_injury_freetext_phrasing_of_same_diagnosis_is_not_a_contradiction(db: S
         extracted_at=datetime.now(timezone.utc),
     )
 
-    assert len(written) == 1
-    assert written[0].is_contradiction is False
+    assert len(result.merged) == 1
+    assert result.staged == []
 
 
 def test_injury_genuinely_different_diagnosis_is_a_contradiction(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
 
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -230,14 +273,16 @@ def test_injury_genuinely_different_diagnosis_is_a_contradiction(db: Session) ->
         extracted_at=datetime.now(timezone.utc),
     )
 
-    assert len(written) == 1
-    assert written[0].is_contradiction is True
+    assert result.merged == []
+    assert len(result.staged) == 1
+    assert result.staged[0].is_contradiction is True
+    assert _current_rows(db, patient_id=patient.id, field_name="injury") == []
 
 
 def test_immutable_field_matching_baseline_is_not_a_contradiction(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
 
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -252,15 +297,15 @@ def test_immutable_field_matching_baseline_is_not_a_contradiction(db: Session) -
         extracted_at=datetime.now(timezone.utc),
     )
 
-    assert len(written) == 1
-    assert written[0].is_contradiction is False
+    assert len(result.merged) == 1
+    assert result.staged == []
 
 
 def test_immutable_field_conflicting_with_baseline_is_flagged_and_not_applied(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
     conflicting_date = (FIXED_SURGERY_DATE + timedelta(days=5)).isoformat()
 
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -272,96 +317,273 @@ def test_immutable_field_conflicting_with_baseline_is_flagged_and_not_applied(db
         extracted_at=datetime.now(timezone.utc),
     )
 
-    assert len(written) == 1
-    assert written[0].is_contradiction is True
+    assert result.merged == []
+    assert len(result.staged) == 1
+    assert result.staged[0].is_contradiction is True
     # The authoritative admin field is untouched — contradictions are surfaced, never silently applied.
+    assert patient.surgery_date == FIXED_SURGERY_DATE
+    assert _current_rows(db, patient_id=patient.id, field_name="surgery_date") == []
+
+
+def test_overwrite_batch_with_low_confidence_sibling_stages_whole_batch(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="active_restrictions", value="No pivoting", confidence=0.9, source_quote="q1"
+            ),
+            ExtractedFact(
+                field_name="active_restrictions", value="Brace required", confidence=0.3, source_quote="q2"
+            ),
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+
+    assert result.merged == []
+    assert {fact.value for fact in result.staged} == {"No pivoting", "Brace required"}
+    assert _current_rows(db, patient_id=patient.id, field_name="active_restrictions") == []
+
+
+def test_overwrite_batch_merges_atomically_once_all_resolved(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="active_restrictions", value="No pivoting", confidence=0.9, source_quote="q1"
+            ),
+            ExtractedFact(
+                field_name="active_restrictions", value="Brace required", confidence=0.3, source_quote="q2"
+            ),
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    keep, drop = result.staged
+
+    approve_pending_fact(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=keep.id
+    )
+    # Sibling still pending — the OVERWRITE batch must not merge partially.
+    assert _current_rows(db, patient_id=patient.id, field_name="active_restrictions") == []
+
+    reject_pending_fact(db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=drop.id)
+
+    current = _current_rows(db, patient_id=patient.id, field_name="active_restrictions")
+    assert [row.value for row in current] == [keep.value]
+
+
+def test_overwrite_batch_all_rejected_leaves_prior_values_untouched(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="active_restrictions", value="No pivoting", confidence=0.9, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="active_restrictions", value="Bad extraction", confidence=0.2, source_quote="q2"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    pending = result.staged[0]
+
+    reject_pending_fact(db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=pending.id)
+
+    current = _current_rows(db, patient_id=patient.id, field_name="active_restrictions")
+    assert [row.value for row in current] == ["No pivoting"]
+
+
+def test_approve_pending_fact_merges_via_shared_merge_logic(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="milestones", value="Maybe full extension", confidence=0.4, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    pending = result.staged[0]
+
+    approved = approve_pending_fact(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=pending.id
+    )
+
+    assert approved.status == PENDING_STATUS_APPROVED
+    assert approved.resolved_value == "Maybe full extension"
+    assert approved.resulting_profile_field_id is not None
+    current = _current_rows(db, patient_id=patient.id, field_name="milestones")
+    assert [row.value for row in current] == ["Maybe full extension"]
+
+
+def test_approve_pending_fact_with_edited_value_still_conflicting_is_allowed(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    conflicting_date = (FIXED_SURGERY_DATE + timedelta(days=5)).isoformat()
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(
+                field_name="surgery_date", value=conflicting_date, confidence=0.9, source_quote="q1"
+            )
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    pending = result.staged[0]
+    still_conflicting_edit = (FIXED_SURGERY_DATE + timedelta(days=9)).isoformat()
+
+    approved = approve_pending_fact(
+        db,
+        patient_id=patient.id,
+        therapist_id=patient.therapist_id,
+        fact_id=pending.id,
+        edited_value=still_conflicting_edit,
+    )
+
+    # Approving is itself the explicit human override — an edited value that
+    # still conflicts with baseline is not blocked from merging.
+    assert approved.resolved_value == still_conflicting_edit
+    current = _current_rows(db, patient_id=patient.id, field_name="surgery_date")
+    assert [row.value for row in current] == [still_conflicting_edit]
     assert patient.surgery_date == FIXED_SURGERY_DATE
 
 
-def test_acknowledge_contradiction_sets_acknowledged_at(db: Session) -> None:
+def test_reject_pending_fact_never_merges(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
         facts=[
             ExtractedFact(
-                field_name="injury", value="Medial meniscus tear", confidence=0.9, source_quote="q1"
+                field_name="milestones", value="Uncertain milestone", confidence=0.3, source_quote="q1"
             )
         ],
         extracted_at=datetime.now(timezone.utc),
     )
-    field = written[0]
-    assert field.acknowledged_at is None
+    pending = result.staged[0]
 
-    acknowledged = acknowledge_contradiction(
-        db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=field.id
+    rejected = reject_pending_fact(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=pending.id
     )
 
-    assert acknowledged.acknowledged_at is not None
+    assert rejected.status == PENDING_STATUS_REJECTED
+    assert _current_rows(db, patient_id=patient.id, field_name="milestones") == []
 
 
-def test_acknowledge_contradiction_is_idempotent(db: Session) -> None:
+def test_append_only_staged_fact_does_not_block_dedupe_of_confident_siblings(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
-    written = merge_extracted_facts(
+    merge_extracted_facts(
         db,
         patient=patient,
         document=document,
         facts=[
             ExtractedFact(
-                field_name="injury", value="Medial meniscus tear", confidence=0.9, source_quote="q1"
+                field_name="milestones", value="Full extension achieved", confidence=0.9, source_quote="q1"
             )
         ],
         extracted_at=datetime.now(timezone.utc),
     )
-    field_id = written[0].id
 
-    first = acknowledge_contradiction(
-        db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=field_id
-    )
-    second = acknowledge_contradiction(
-        db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=field_id
-    )
-
-    assert first.acknowledged_at == second.acknowledged_at
-
-
-def test_acknowledge_contradiction_rejects_non_contradiction_field(db: Session) -> None:
-    patient, document = _make_patient_and_document(db)
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
         facts=[
+            ExtractedFact(
+                field_name="milestones", value="Full extension achieved", confidence=0.9, source_quote="q1"
+            ),
             ExtractedFact(
                 field_name="milestones",
-                value="Full extension achieved",
-                confidence=0.9,
-                source_quote="q1",
-            )
+                value="Maybe cleared for jogging",
+                confidence=0.4,
+                source_quote="q2",
+            ),
         ],
         extracted_at=datetime.now(timezone.utc),
     )
 
-    with pytest.raises(NotAContradiction):
-        acknowledge_contradiction(
-            db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=written[0].id
+    assert result.merged == []  # the only confident candidate was an exact duplicate
+    assert len(result.staged) == 1
+    assert result.staged[0].value == "Maybe cleared for jogging"
+
+
+def test_approve_pending_fact_rejects_unknown_fact(db: Session) -> None:
+    patient, _document = _make_patient_and_document(db)
+
+    with pytest.raises(PendingFactNotFound):
+        approve_pending_fact(
+            db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=uuid.uuid4()
         )
 
 
-def test_acknowledge_contradiction_rejects_unknown_field(db: Session) -> None:
-    patient, _document = _make_patient_and_document(db)
+def test_approve_pending_fact_rejects_non_owning_therapist(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(field_name="milestones", value="Uncertain", confidence=0.3, source_quote="q1")
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    pending = result.staged[0]
 
-    with pytest.raises(ProfileFieldNotFound):
-        acknowledge_contradiction(
-            db, patient_id=patient.id, therapist_id=patient.therapist_id, field_id=uuid.uuid4()
+    with pytest.raises(PendingFactNotFound):
+        approve_pending_fact(
+            db, patient_id=patient.id, therapist_id=uuid.uuid4(), fact_id=pending.id
+        )
+
+
+def test_approve_pending_fact_rejects_already_resolved(db: Session) -> None:
+    patient, document = _make_patient_and_document(db)
+    result = merge_extracted_facts(
+        db,
+        patient=patient,
+        document=document,
+        facts=[
+            ExtractedFact(field_name="milestones", value="Uncertain", confidence=0.3, source_quote="q1")
+        ],
+        extracted_at=datetime.now(timezone.utc),
+    )
+    pending = result.staged[0]
+    approve_pending_fact(
+        db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=pending.id
+    )
+
+    with pytest.raises(PendingFactAlreadyResolved):
+        approve_pending_fact(
+            db, patient_id=patient.id, therapist_id=patient.therapist_id, fact_id=pending.id
         )
 
 
 def test_unrecognized_field_name_is_silently_ignored(db: Session) -> None:
     patient, document = _make_patient_and_document(db)
 
-    written = merge_extracted_facts(
+    result = merge_extracted_facts(
         db,
         patient=patient,
         document=document,
@@ -373,4 +595,5 @@ def test_unrecognized_field_name_is_silently_ignored(db: Session) -> None:
         extracted_at=datetime.now(timezone.utc),
     )
 
-    assert written == []
+    assert result.merged == []
+    assert result.staged == []

@@ -11,7 +11,7 @@ export function profileFieldLabel(fieldName: string): string {
 }
 
 const NEEDS_REVIEW_VARIANTS: Record<string, 'destructive' | 'warning'> = {
-  Contradiction: 'destructive',
+  'Pending extraction': 'warning',
   'Adherence drop': 'warning',
   'No check-in': 'warning',
   'Symptom question': 'destructive',

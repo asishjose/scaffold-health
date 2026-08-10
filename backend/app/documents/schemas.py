@@ -22,3 +22,4 @@ class DocumentListItem(BaseModel):
     status: str
     created_at: datetime
     extracted_at: datetime | None
+    has_pending_facts: bool = False

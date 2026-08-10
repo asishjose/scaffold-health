@@ -50,9 +50,25 @@ export interface ProfileField {
   source_quote: string | null
   source_document_id: string | null
   extracted_at: string
-  is_contradiction: boolean
   superseded_at: string | null
-  acknowledged_at: string | null
+}
+
+export type PendingFactStatus = 'pending' | 'approved' | 'rejected'
+
+export interface PendingProfileFact {
+  id: string
+  field_name: string
+  value: string
+  confidence: number
+  source_quote: string
+  source_document_id: string
+  extracted_at: string
+  is_contradiction: boolean
+  is_low_confidence: boolean
+  status: PendingFactStatus
+  resolved_at: string | null
+  resolved_value: string | null
+  resulting_profile_field_id: string | null
 }
 
 export interface PatientDetail {
@@ -106,6 +122,7 @@ export interface DocumentListItem {
   status: DocumentStatus
   created_at: string
   extracted_at: string | null
+  has_pending_facts: boolean
 }
 
 export interface Brief {

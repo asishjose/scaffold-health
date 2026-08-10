@@ -106,12 +106,15 @@ function DocumentsPanel({ patientId }: { patientId: string }) {
                       </p>
                     </div>
                   </div>
-                  <Badge variant={badge.variant} className="shrink-0">
-                    {doc.status === 'processing' && (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    )}
-                    {badge.label}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {doc.has_pending_facts && <Badge variant="warning">Needs review</Badge>}
+                    <Badge variant={badge.variant}>
+                      {doc.status === 'processing' && (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      )}
+                      {badge.label}
+                    </Badge>
+                  </div>
                 </li>
               )
             })}

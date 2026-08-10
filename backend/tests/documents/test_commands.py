@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.auth import commands as auth_commands
 from app.core.config import settings
-from app.documents import commands
+from app.documents import commands, tasks as document_tasks
 from app.event_store.store import get_stream_events
 from app.patients import commands as patient_commands
+from app.profile.events import PENDING_STATUS_APPROVED, PENDING_STATUS_PENDING
+from app.profile.models import PendingProfileFact
 
 
 def _minimal_pdf_bytes() -> bytes:
@@ -158,3 +160,86 @@ def test_record_extraction_failure_marks_document_failed(db: Session) -> None:
 
     assert updated.status == "failed"
     assert updated.error == "corrupt file"
+
+
+def _make_pending_fact(
+    db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUID, document_id: uuid.UUID, status: str
+) -> PendingProfileFact:
+    fact = PendingProfileFact(
+        id=uuid.uuid4(),
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        source_document_id=document_id,
+        field_name="milestones",
+        value="Uncertain milestone",
+        confidence=0.3,
+        source_quote="q1",
+        is_contradiction=False,
+        is_low_confidence=True,
+        extractor_version="test",
+        extracted_at=datetime.now(timezone.utc),
+        status=status,
+    )
+    db.add(fact)
+    db.commit()
+    return fact
+
+
+def test_maybe_trigger_deferred_rag_indexing_noop_while_facts_still_pending(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_minimal_pdf_bytes(),
+    )
+    _make_pending_fact(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        document_id=document.id,
+        status=PENDING_STATUS_PENDING,
+    )
+
+    delay_calls: list[tuple] = []
+    monkeypatch.setattr(
+        document_tasks.run_deferred_rag_indexing, "delay", lambda *a, **kw: delay_calls.append(a)
+    )
+
+    commands.maybe_trigger_deferred_rag_indexing(db, document_id=document.id)
+
+    assert delay_calls == []
+
+
+def test_maybe_trigger_deferred_rag_indexing_fires_when_last_pending_fact_resolved(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    therapist_id, patient_id = _make_patient(db)
+    document = commands.upload_document(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        filename="mri-report.pdf",
+        content_type="application/pdf",
+        file_bytes=_minimal_pdf_bytes(),
+    )
+    _make_pending_fact(
+        db,
+        patient_id=patient_id,
+        therapist_id=therapist_id,
+        document_id=document.id,
+        status=PENDING_STATUS_APPROVED,
+    )
+
+    delay_calls: list[tuple] = []
+    monkeypatch.setattr(
+        document_tasks.run_deferred_rag_indexing, "delay", lambda *a, **kw: delay_calls.append(a)
+    )
+
+    commands.maybe_trigger_deferred_rag_indexing(db, document_id=document.id)
+
+    assert delay_calls == [(str(document.id),)]

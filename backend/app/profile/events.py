@@ -2,9 +2,13 @@ STREAM_TYPE_PROFILE = "patient_profile"
 
 # One event per (document, field_name) extraction batch — see commands.py.
 PROFILE_FIELDS_MERGED = "ProfileFieldsMerged"
-# Therapist decision on a single contradictory ProfileField row — see
-# commands.acknowledge_contradiction.
-CONTRADICTION_ACKNOWLEDGED = "ContradictionAcknowledged"
+
+# PendingProfileFact.status values — a therapist's pending/approve/reject
+# decision on a staged fact. Not event-sourced (see profile/models.py), so
+# these are plain row-status constants, not event types.
+PENDING_STATUS_PENDING = "pending"
+PENDING_STATUS_APPROVED = "approved"
+PENDING_STATUS_REJECTED = "rejected"
 
 STRATEGY_OVERWRITE = "overwrite"
 STRATEGY_APPEND_ONLY = "append_only"
@@ -24,7 +28,7 @@ FIELD_MERGE_STRATEGIES = {
 EXTRACTABLE_FIELDS = list(FIELD_MERGE_STRATEGIES)
 
 # Typed needs_review reasons (PRD §6.3: "never a generic flag").
-REASON_CONTRADICTION = "Contradiction"
+REASON_PENDING_EXTRACTION = "Pending extraction"
 REASON_ADHERENCE_DROP = "Adherence drop"
 REASON_NO_CHECKIN = "No check-in"
 REASON_ASSISTANT_REDIRECT = "Symptom question"

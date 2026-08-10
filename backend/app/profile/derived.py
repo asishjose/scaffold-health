@@ -10,8 +10,8 @@ from statistics import mean
 from app.profile.events import (
     REASON_ADHERENCE_DROP,
     REASON_ASSISTANT_REDIRECT,
-    REASON_CONTRADICTION,
     REASON_NO_CHECKIN,
+    REASON_PENDING_EXTRACTION,
 )
 
 PAIN_TREND_IMPROVING = "improving"
@@ -60,7 +60,7 @@ def compute_exercise_adherence(
 
 def compute_needs_review_reasons(
     *,
-    has_contradiction: bool,
+    has_pending_extraction: bool,
     has_recent_assistant_redirect: bool,
     invite_accepted_at: datetime | None,
     is_discharged: bool,
@@ -72,8 +72,8 @@ def compute_needs_review_reasons(
     to render.
     """
     reasons = []
-    if has_contradiction:
-        reasons.append(REASON_CONTRADICTION)
+    if has_pending_extraction:
+        reasons.append(REASON_PENDING_EXTRACTION)
     if has_recent_assistant_redirect:
         reasons.append(REASON_ASSISTANT_REDIRECT)
 

@@ -11,8 +11,8 @@ from app.profile.derived import (
 from app.profile.events import (
     REASON_ADHERENCE_DROP,
     REASON_ASSISTANT_REDIRECT,
-    REASON_CONTRADICTION,
     REASON_NO_CHECKIN,
+    REASON_PENDING_EXTRACTION,
 )
 
 NOW = datetime(2026, 7, 16, tzinfo=timezone.utc)
@@ -64,7 +64,7 @@ def test_exercise_adherence_full_week() -> None:
 
 def test_needs_review_empty_when_nothing_flagged() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=False,
+        has_pending_extraction=False,
         has_recent_assistant_redirect=False,
         invite_accepted_at=_at(30),
         is_discharged=False,
@@ -74,21 +74,21 @@ def test_needs_review_empty_when_nothing_flagged() -> None:
     assert reasons == []
 
 
-def test_needs_review_contradiction_always_reported() -> None:
+def test_needs_review_pending_extraction_always_reported() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=True,
+        has_pending_extraction=True,
         has_recent_assistant_redirect=False,
         invite_accepted_at=None,
         is_discharged=False,
         recent_checkin_count=0,
         now=NOW,
     )
-    assert reasons == [REASON_CONTRADICTION]
+    assert reasons == [REASON_PENDING_EXTRACTION]
 
 
 def test_needs_review_no_checkin_reported_after_grace_period() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=False,
+        has_pending_extraction=False,
         has_recent_assistant_redirect=False,
         invite_accepted_at=_at(30),
         is_discharged=False,
@@ -100,7 +100,7 @@ def test_needs_review_no_checkin_reported_after_grace_period() -> None:
 
 def test_needs_review_adherence_drop_below_threshold() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=False,
+        has_pending_extraction=False,
         has_recent_assistant_redirect=False,
         invite_accepted_at=_at(30),
         is_discharged=False,
@@ -112,7 +112,7 @@ def test_needs_review_adherence_drop_below_threshold() -> None:
 
 def test_needs_review_suppressed_before_grace_period_elapses() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=False,
+        has_pending_extraction=False,
         has_recent_assistant_redirect=False,
         invite_accepted_at=_at(2),
         is_discharged=False,
@@ -124,7 +124,7 @@ def test_needs_review_suppressed_before_grace_period_elapses() -> None:
 
 def test_needs_review_suppressed_once_discharged() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=False,
+        has_pending_extraction=False,
         has_recent_assistant_redirect=False,
         invite_accepted_at=_at(30),
         is_discharged=True,
@@ -136,7 +136,7 @@ def test_needs_review_suppressed_once_discharged() -> None:
 
 def test_needs_review_assistant_redirect_always_reported() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=False,
+        has_pending_extraction=False,
         has_recent_assistant_redirect=True,
         invite_accepted_at=None,
         is_discharged=False,
@@ -148,11 +148,11 @@ def test_needs_review_assistant_redirect_always_reported() -> None:
 
 def test_needs_review_combines_multiple_reasons() -> None:
     reasons = compute_needs_review_reasons(
-        has_contradiction=True,
+        has_pending_extraction=True,
         has_recent_assistant_redirect=False,
         invite_accepted_at=_at(30),
         is_discharged=False,
         recent_checkin_count=0,
         now=NOW,
     )
-    assert reasons == [REASON_CONTRADICTION, REASON_NO_CHECKIN]
+    assert reasons == [REASON_PENDING_EXTRACTION, REASON_NO_CHECKIN]

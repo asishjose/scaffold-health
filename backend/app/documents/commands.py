@@ -15,6 +15,9 @@ from app.documents.events import (
 from app.documents.models import Document
 from app.event_store.store import append_event
 from app.patients.models import Patient
+from app.profile.events import PENDING_STATUS_PENDING
+from app.profile.models import PendingProfileFact
+from app.rag.models import RagChunk
 from app.timeline import projector as timeline_projector
 
 PDF_MAGIC_BYTES = b"%PDF-"
@@ -107,3 +110,56 @@ def record_extraction_failure(db: Session, *, document_id: uuid.UUID, error: str
     document = projector.apply(db, event)
     db.commit()
     return document
+
+
+def maybe_trigger_deferred_rag_indexing(db: Session, *, document_id: uuid.UUID) -> None:
+    """Called after a pending fact is resolved (profile.commands). If this
+    was the document's last unresolved pending fact, dispatches the
+    RAG-indexing task that was skipped at initial processing time
+    (documents.tasks.process_document) because unverified content must not
+    be Copilot-searchable yet.
+    """
+    still_pending = db.execute(
+        select(PendingProfileFact.id)
+        .where(
+            PendingProfileFact.source_document_id == document_id,
+            PendingProfileFact.status == PENDING_STATUS_PENDING,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if still_pending is not None:
+        return
+
+    # Idempotency guard: two pending facts for the same document could
+    # resolve concurrently and both observe "none left pending".
+    already_indexed = db.execute(
+        select(RagChunk.id).where(RagChunk.source_document_id == document_id).limit(1)
+    ).scalar_one_or_none()
+    if already_indexed is not None:
+        return
+
+    # Deferred import: documents.tasks imports commands (this module) at
+    # module scope, so importing it here at module scope would cycle.
+    from app.documents.tasks import run_deferred_rag_indexing
+
+    run_deferred_rag_indexing.delay(str(document_id))
+
+
+def list_document_ids_with_pending_facts(
+    db: Session, *, document_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Bulk version of the pending-check above, for listing endpoints that
+    need a has_pending_facts flag per document without one query each.
+    """
+    if not document_ids:
+        return set()
+    return set(
+        db.execute(
+            select(PendingProfileFact.source_document_id)
+            .where(
+                PendingProfileFact.source_document_id.in_(document_ids),
+                PendingProfileFact.status == PENDING_STATUS_PENDING,
+            )
+            .distinct()
+        ).scalars()
+    )
