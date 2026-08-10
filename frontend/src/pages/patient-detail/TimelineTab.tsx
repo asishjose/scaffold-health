@@ -5,5 +5,12 @@ import { PatientTimelinePanel } from '@/shared/components/PatientTimelinePanel'
 
 export function TimelineTab() {
   const patient = useOutletContext<PatientDetailType>()
-  return <PatientTimelinePanel patientId={patient.id} variant="therapist" />
+  return (
+    <PatientTimelinePanel
+      patientId={patient.id}
+      variant="therapist"
+      surgeryDate={patient.surgery_date}
+      currentPhase={patient.current_phase}
+    />
+  )
 }
