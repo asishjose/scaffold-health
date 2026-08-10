@@ -1,0 +1,217 @@
+[
+  {
+    "id": "cg-red-flags-dvt",
+    "scope": "clinical_guidelines",
+    "query": "My patient's calf has become tender and painful along with a sudden increase in knee swelling — should I escalate this?",
+    "expected_labels": ["acl_general_red_flags.txt"],
+    "expected_keywords": ["deep vein thrombosis", "calf"]
+  },
+  {
+    "id": "cg-red-flags-locking",
+    "scope": "clinical_guidelines",
+    "query": "The patient describes a new locking or catching sensation in the knee that wasn't there before — is this concerning?",
+    "expected_labels": ["acl_general_red_flags.txt"],
+    "expected_keywords": ["locking", "catching"]
+  },
+  {
+    "id": "cg-phase1-rom-goals",
+    "scope": "clinical_guidelines",
+    "query": "What range of motion should a patient have achieved by the end of week 2 post-op?",
+    "expected_labels": ["acl_phase1_protection.txt"],
+    "expected_keywords": ["90 degrees", "extension"]
+  },
+  {
+    "id": "cg-phase1-weightbearing",
+    "scope": "clinical_guidelines",
+    "query": "When should a patient typically progress to weight-bearing as tolerated with crutches after ACL reconstruction?",
+    "expected_labels": ["acl_phase1_protection.txt"],
+    "expected_keywords": ["weight-bearing", "crutches"]
+  },
+  {
+    "id": "cg-phase2-strength-target",
+    "scope": "clinical_guidelines",
+    "query": "What quadriceps strength percentage should a patient reach by week 8 relative to the uninvolved leg?",
+    "expected_labels": ["acl_phase2_strengthening.txt"],
+    "expected_keywords": ["70%", "quadriceps"]
+  },
+  {
+    "id": "cg-phase3-entry-criteria",
+    "scope": "clinical_guidelines",
+    "query": "What are the entry criteria before a patient can begin jogging progressions?",
+    "expected_labels": ["acl_phase3_neuromuscular_control.txt"],
+    "expected_keywords": ["80%", "effusion"]
+  },
+  {
+    "id": "cg-return-to-sport-lsi",
+    "scope": "clinical_guidelines",
+    "query": "What limb symmetry index is required before clearing a patient for return to sport?",
+    "expected_labels": ["acl_return_to_sport_criteria.txt"],
+    "expected_keywords": ["limb symmetry", "hop"]
+  },
+  {
+    "id": "cg-return-to-sport-timing",
+    "scope": "clinical_guidelines",
+    "query": "What is the earliest reasonable timeline for clearing a patient for cutting and pivoting sports?",
+    "expected_labels": ["acl_return_to_sport_criteria.txt"],
+    "expected_keywords": ["month 9", "cutting"]
+  },
+  {
+    "id": "cg-negative-antibiotic",
+    "scope": "clinical_guidelines",
+    "query": "What is the recommended antibiotic dosage for a sinus infection?",
+    "expected_labels": [],
+    "expected_keywords": []
+  },
+  {
+    "id": "cg-negative-shoulder",
+    "scope": "clinical_guidelines",
+    "query": "What is the standard rehab protocol after a rotator cuff repair?",
+    "expected_labels": [],
+    "expected_keywords": []
+  },
+  {
+    "id": "pe-icing-technique",
+    "scope": "patient_education",
+    "query": "How long should I ice my knee and how often?",
+    "expected_labels": ["icing_and_swelling_care.txt"],
+    "expected_keywords": ["15-20 minutes", "ice"]
+  },
+  {
+    "id": "pe-icing-compression",
+    "scope": "patient_education",
+    "query": "Is it safe to wrap my knee tightly for compression after surgery?",
+    "expected_labels": ["icing_and_swelling_care.txt"],
+    "expected_keywords": ["compression", "numb"]
+  },
+  {
+    "id": "pe-brace-crutch-technique",
+    "scope": "patient_education",
+    "query": "How do I walk correctly with crutches after my surgery?",
+    "expected_labels": ["brace_and_crutch_use.txt"],
+    "expected_keywords": ["crutches", "step"]
+  },
+  {
+    "id": "pe-brace-crutch-transition",
+    "scope": "patient_education",
+    "query": "When will I be able to stop using my crutches?",
+    "expected_labels": ["brace_and_crutch_use.txt"],
+    "expected_keywords": ["crutches", "therapist"]
+  },
+  {
+    "id": "pe-hep-soreness",
+    "scope": "patient_education",
+    "query": "Is it normal to feel sore after doing my home exercises?",
+    "expected_labels": ["home_exercise_program_basics.txt"],
+    "expected_keywords": ["soreness", "sharp pain"]
+  },
+  {
+    "id": "pe-hep-consistency",
+    "scope": "patient_education",
+    "query": "Is it better to do a little exercise every day or one long session per week?",
+    "expected_labels": ["home_exercise_program_basics.txt"],
+    "expected_keywords": ["consistency", "most days"]
+  },
+  {
+    "id": "pe-week1-2-overview",
+    "scope": "patient_education",
+    "query": "What should I expect to feel like during the first two weeks after my surgery?",
+    "expected_labels": ["what_to_expect_week_1_2.txt"],
+    "expected_keywords": ["tired", "swelling"]
+  },
+  {
+    "id": "pe-call-clinic-signs",
+    "scope": "patient_education",
+    "query": "What symptoms mean I should call the clinic right away instead of waiting for my next visit?",
+    "expected_labels": ["when_to_call_the_clinic.txt"],
+    "expected_keywords": ["fever", "redness"]
+  },
+  {
+    "id": "pe-negative-recipe",
+    "scope": "patient_education",
+    "query": "What's a good recipe for a low-sodium dinner?",
+    "expected_labels": [],
+    "expected_keywords": []
+  },
+  {
+    "id": "pe-negative-insurance",
+    "scope": "patient_education",
+    "query": "How do I update my insurance information on file?",
+    "expected_labels": [],
+    "expected_keywords": []
+  },
+  {
+    "id": "pn-acl-diagnosis",
+    "scope": "patient_notes",
+    "query": "What did the imaging show about this patient's knee injury?",
+    "expected_labels": ["01_mri_report.pdf"],
+    "expected_keywords": ["acl", "anterior cruciate ligament"]
+  },
+  {
+    "id": "pn-graft-type",
+    "scope": "patient_notes",
+    "query": "What type of graft was used for this patient's ACL reconstruction?",
+    "expected_labels": ["02_operative_report.pdf", "03_discharge_summary.pdf", "04_referral_note.pdf"],
+    "expected_keywords": ["bone-patellar tendon-bone", "autograft"]
+  },
+  {
+    "id": "pn-current-weight-bearing",
+    "scope": "patient_notes",
+    "query": "What is this patient's current weight-bearing status?",
+    "expected_labels": [
+      "03_discharge_summary.pdf",
+      "04_referral_note.pdf",
+      "05_pt_progress_week2.pdf",
+      "06_pt_progress_week4.pdf"
+    ],
+    "expected_keywords": ["weight-bearing", "toe-touch", "crutches"]
+  },
+  {
+    "id": "pn-referral-reason",
+    "scope": "patient_notes",
+    "query": "Why was this patient referred to outpatient physical therapy?",
+    "expected_labels": ["04_referral_note.pdf"],
+    "expected_keywords": ["referral", "physical therapy"]
+  },
+  {
+    "id": "pn-flexion-milestone",
+    "scope": "patient_notes",
+    "query": "When did the patient first achieve 120 degrees of knee flexion?",
+    "expected_labels": ["07_pt_progress_week8.pdf"],
+    "expected_keywords": ["120 degrees"]
+  },
+  {
+    "id": "pn-swelling-concern",
+    "scope": "patient_notes",
+    "query": "Has the patient reported any recent increase in knee swelling during therapy?",
+    "expected_labels": ["06_pt_progress_week4.pdf"],
+    "expected_keywords": ["swelling", "effusion"]
+  },
+  {
+    "id": "pn-anterior-knee-pain",
+    "scope": "patient_notes",
+    "query": "Has the patient experienced anterior knee pain with kneeling or stairs?",
+    "expected_labels": ["07_pt_progress_week8.pdf", "08_pt_progress_week12.pdf"],
+    "expected_keywords": ["anterior knee pain"]
+  },
+  {
+    "id": "pn-return-to-sport-clearance",
+    "scope": "patient_notes",
+    "query": "Has this patient been cleared for return to sport including pivoting and cutting activities?",
+    "expected_labels": ["09_pt_progress_week16.pdf"],
+    "expected_keywords": ["cleared", "return to sport", "pivoting"]
+  },
+  {
+    "id": "pn-negative-diabetes",
+    "scope": "patient_notes",
+    "query": "Does this patient have a history of diabetes?",
+    "expected_labels": [],
+    "expected_keywords": []
+  },
+  {
+    "id": "pn-negative-allergy",
+    "scope": "patient_notes",
+    "query": "What medications is this patient allergic to?",
+    "expected_labels": [],
+    "expected_keywords": []
+  }
+]
