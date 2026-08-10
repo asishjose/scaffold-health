@@ -14,12 +14,16 @@ class Settings(BaseSettings):
 
     clinic_registration_code: str = "DEV-CLINIC-CODE"
 
-    # Groq handles fact extraction and brief generation (chat completions).
+    # Groq is the primary provider for text generation (fact extraction,
+    # briefs, assistant/copilot answers).
     groq_api_key: str | None = None
     groq_model: str = "openai/gpt-oss-120b"
 
-    # Groq has no embeddings API — Gemini fills that one gap in the pipeline.
+    # Gemini is the fallback provider for those same text-generation calls
+    # if Groq fails, and the sole provider for embeddings (Groq has no
+    # embeddings API).
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
 
     invite_token_expire_hours: int = 48
