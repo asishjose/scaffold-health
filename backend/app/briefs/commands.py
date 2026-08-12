@@ -109,7 +109,7 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
     query_text = " ".join(
         [patient.injury, patient.current_phase, *active_concerns, *active_restrictions, *milestones]
     ).strip()
-    query_embedding = embed_text(query_text, task_type="RETRIEVAL_QUERY")
+    query_embedding = embed_text(query_text, task_type="RETRIEVAL_QUERY", source="briefs")
     rag_chunks = therapist_queries.retrieve_patient_notes_chunks(
         db, therapist_id=therapist_id, patient_id=patient_id, query_embedding=query_embedding
     )

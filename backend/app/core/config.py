@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
 
+    # Long TTL for memory hygiene, not correctness — model, task_type, and
+    # output dimensionality are already part of the query-embedding cache
+    # key, so a model change naturally produces fresh keys with no
+    # explicit invalidation needed.
+    embedding_cache_ttl_seconds: int = 2_592_000  # 30 days
+
     invite_token_expire_hours: int = 48
 
     documents_storage_dir: str = "/app/data/documents"

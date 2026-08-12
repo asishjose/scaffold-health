@@ -96,7 +96,7 @@ def send_message(
         db, therapist_id=therapist_id, patient_id=patient_id
     )
 
-    query_embedding = embed_text(content, task_type="RETRIEVAL_QUERY")
+    query_embedding = embed_text(content, task_type="RETRIEVAL_QUERY", source="copilot")
     note_chunks = therapist_queries.retrieve_patient_notes_chunks(
         db, therapist_id=therapist_id, patient_id=patient_id, query_embedding=query_embedding
     )
