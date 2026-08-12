@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.logging_config import get_trace_id
 from app.documents import projector
 from app.documents.events import (
     DOCUMENT_EXTRACTION_FAILED,
@@ -78,7 +79,7 @@ def upload_document(
     # scope would create a cycle.
     from app.documents.tasks import process_document
 
-    process_document.delay(str(document.id))
+    process_document.delay(str(document.id), trace_id=get_trace_id())
 
     return document
 
@@ -142,7 +143,7 @@ def maybe_trigger_deferred_rag_indexing(db: Session, *, document_id: uuid.UUID) 
     # module scope, so importing it here at module scope would cycle.
     from app.documents.tasks import run_deferred_rag_indexing
 
-    run_deferred_rag_indexing.delay(str(document_id))
+    run_deferred_rag_indexing.delay(str(document_id), trace_id=get_trace_id())
 
 
 def list_document_ids_with_pending_facts(

@@ -5,11 +5,16 @@ from app.auth.router import router as auth_router
 from app.briefs.router import router as briefs_router
 from app.checkins.router import router as checkins_router
 from app.copilot.router import router as copilot_router
+from app.core.logging_config import configure_logging
+from app.core.request_context import RequestContextMiddleware
 from app.documents.router import router as documents_router
 from app.patients.router import router as patients_router
 from app.timeline.router import router as timeline_router
 
+configure_logging()
+
 app = FastAPI(title="Scaffold Health API")
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(auth_router)
 app.include_router(patients_router)

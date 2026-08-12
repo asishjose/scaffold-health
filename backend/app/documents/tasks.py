@@ -8,6 +8,7 @@ from pypdf import PdfReader
 from app.core.celery_app import celery_app
 from app.core.db import SessionLocal
 from app.core.llm_client import LLMExtractionError, extract_facts
+from app.core.logging_config import bind_context
 from app.documents import commands
 from app.documents.models import Document
 from app.patients.models import Patient
@@ -21,7 +22,7 @@ RETRYABLE_COUNTDOWN_SECONDS = 30
 
 
 @celery_app.task(name="documents.process_document", bind=True, max_retries=3)
-def process_document(self, document_id: str) -> None:
+def process_document(self, document_id: str, trace_id: str | None = None) -> None:
     """Extracts raw text from an uploaded PDF, runs LLM fact extraction over
     it, and merges the results into the patient's Knowledge Profile
     (PRD §5.4). A failure at any step — OCR/text extraction, the LLM call,
@@ -31,7 +32,14 @@ def process_document(self, document_id: str) -> None:
     LLM calls can fail transiently (DNS blips, timeouts, rate limits), so
     LLMExtractionError gets retried with backoff before giving up; other
     failures (e.g. a corrupt PDF) are permanent and fail immediately.
+
+    `trace_id` carries the id of the upload request that dispatched this
+    task, so worker logs can be correlated back to it even without a
+    tracing backend in place yet; it falls back to this task's own id
+    (e.g. on a retry, where no request is on the stack).
     """
+    bind_context(request_id=self.request.id, trace_id=trace_id or self.request.id)
+    logger.info("document processing started", extra={"document_id": document_id})
     db = SessionLocal()
     try:
         document = db.get(Document, uuid.UUID(document_id))
@@ -44,6 +52,7 @@ def process_document(self, document_id: str) -> None:
         # until it's resolved (documents.commands.maybe_trigger_deferred_rag_indexing),
         # so unverified document content never becomes Copilot-searchable.
         commands.record_extraction_result(db, document_id=document.id, extracted_text=text)
+        logger.info("document processing completed", extra={"document_id": document_id})
     except LLMExtractionError as exc:
         db.rollback()
         if self.request.retries < self.max_retries:
@@ -53,6 +62,10 @@ def process_document(self, document_id: str) -> None:
             except Retry:
                 # Real retry signal from a worker context — let it propagate
                 # so Celery re-enqueues the task; don't record a failure yet.
+                logger.warning(
+                    "document processing retrying",
+                    extra={"document_id": document_id, "retry": self.request.retries, "error": str(exc)},
+                )
                 raise
             except Exception:
                 # self.retry() re-raises `exc` itself instead of a Retry
@@ -61,9 +74,13 @@ def process_document(self, document_id: str) -> None:
                 # There's no broker to re-enqueue against, so fall through
                 # and record it as failed like any other terminal error.
                 pass
+        logger.error(
+            "document processing failed", extra={"document_id": document_id, "error": str(exc)}
+        )
         commands.record_extraction_failure(db, document_id=uuid.UUID(document_id), error=str(exc))
     except Exception as exc:
         db.rollback()
+        logger.exception("document processing failed", extra={"document_id": document_id})
         commands.record_extraction_failure(db, document_id=uuid.UUID(document_id), error=str(exc))
     finally:
         db.close()
@@ -110,13 +127,14 @@ def _run_rag_indexing(db, *, patient: Patient, document: Document, text: str) ->
         logger.warning("rag indexing failed for document=%s: %s", document.id, exc)
 
 
-@celery_app.task(name="documents.run_deferred_rag_indexing")
-def run_deferred_rag_indexing(document_id: str) -> None:
+@celery_app.task(name="documents.run_deferred_rag_indexing", bind=True)
+def run_deferred_rag_indexing(self, document_id: str, trace_id: str | None = None) -> None:
     """Runs the RAG indexing that was skipped at upload time because the
     document produced at least one pending fact. Dispatched once that
     document's last pending fact is resolved (approved or rejected) — see
     documents.commands.maybe_trigger_deferred_rag_indexing.
     """
+    bind_context(request_id=self.request.id, trace_id=trace_id or self.request.id)
     db = SessionLocal()
     try:
         document = db.get(Document, uuid.UUID(document_id))
