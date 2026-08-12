@@ -8,9 +8,15 @@ on provider-specific types, so changing either provider later touches only
 this file.
 """
 
+import hashlib
+import json
+import logging
+
 from pydantic import BaseModel, ConfigDict, Field
+from redis.exceptions import RedisError
 
 from app.core.config import settings
+from app.core.redis_client import get_redis_client
 
 try:
     from groq import Groq
@@ -65,6 +71,14 @@ class LLMExtractionError(Exception):
 
 
 EMBEDDING_DIMENSIONS = 768
+
+logger = logging.getLogger(__name__)
+
+# Only RETRIEVAL_QUERY embeddings are cached — RETRIEVAL_DOCUMENT calls
+# (chunk indexing) embed effectively-unique text once each, so caching
+# them would be pure overhead.
+_CACHEABLE_TASK_TYPE = "RETRIEVAL_QUERY"
+_EMBEDDING_CACHE_PREFIX = "embcache:v1"
 
 
 _EXTRACTION_SYSTEM_INSTRUCTION = """You are a clinical documentation extraction assistant for \
@@ -301,13 +315,86 @@ def answer_copilot_message(
         raise LLMExtractionError(f"Model returned invalid JSON: {exc}") from exc
 
 
-def embed_text(text: str, *, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
+def embed_text(
+    text: str, *, task_type: str = "RETRIEVAL_DOCUMENT", source: str | None = None
+) -> list[float]:
     """Provider-agnostic embedding call (PRD §6.4). `task_type` defaults to
     RETRIEVAL_DOCUMENT for indexing; a retrieval-side caller should pass
     RETRIEVAL_QUERY (Gemini's asymmetric embedding convention — Gemini is
     the embeddings provider here since Groq has no embeddings API).
+
+    RETRIEVAL_QUERY calls are cached in Redis, keyed on normalized text +
+    model + task_type + dimensions — the vector is a deterministic function
+    of those, so a cache hit is always correct, never stale. `source`
+    identifies the calling feature (e.g. "briefs", "assistant", "copilot")
+    for per-call-site hit/miss visibility and is required for RETRIEVAL_QUERY
+    calls; letting it silently default would defeat the point of tracking it.
+    A Redis outage degrades this to a live call on every request rather than
+    failing it — see `_get_cached_embedding`/`_set_cached_embedding`.
     """
-    return _embed(text, task_type=task_type)
+    if task_type != _CACHEABLE_TASK_TYPE:
+        return _embed(text, task_type=task_type)
+
+    if not source:
+        raise ValueError("source is required when task_type is RETRIEVAL_QUERY")
+
+    key = _embedding_cache_key(text, task_type=task_type)
+    cached = _get_cached_embedding(key)
+    if cached is not None:
+        _record_cache_stat("hit", source)
+        return cached
+
+    _record_cache_stat("miss", source)
+    vector = _embed(text, task_type=task_type)
+    _set_cached_embedding(key, vector)
+    return vector
+
+
+def _embedding_cache_key(text: str, *, task_type: str) -> str:
+    """Content-based key: normalized text + model + task_type + output dims
+    hashed together, never stored verbatim — query text (patient/therapist
+    questions) can be PHI-adjacent clinical text, and Redis keys are visible
+    via KEYS/MONITOR/persistence dumps. `v1` lets a future change to the
+    normalization/key scheme ship as v2 without an explicit cache flush.
+    """
+    normalized = " ".join(text.lower().split())
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return (
+        f"{_EMBEDDING_CACHE_PREFIX}:{settings.gemini_embedding_model}:"
+        f"{task_type}:{EMBEDDING_DIMENSIONS}:{digest}"
+    )
+
+
+def _get_cached_embedding(key: str) -> list[float] | None:
+    try:
+        raw = get_redis_client().get(key)
+    except RedisError as exc:
+        logger.warning("embedding cache GET failed, falling through to Gemini: %s", exc)
+        return None
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None  # corrupt entry: treat as a miss, never raise
+
+
+def _set_cached_embedding(key: str, vector: list[float]) -> None:
+    try:
+        get_redis_client().setex(key, settings.embedding_cache_ttl_seconds, json.dumps(vector))
+    except RedisError as exc:
+        logger.warning("embedding cache SET failed (result still returned): %s", exc)
+
+
+def _record_cache_stat(kind: str, source: str) -> None:
+    """Best-effort hit/miss counters for manual inspection (`redis-cli GET
+    embcache:stats:hit:<source>`) — not a metrics system, just enough
+    visibility to decide later whether further caching layers are worth it.
+    """
+    try:
+        get_redis_client().incr(f"embcache:stats:{kind}:{source}")
+    except RedisError:
+        pass
 
 
 def _embed(text: str, *, task_type: str) -> list[float]:

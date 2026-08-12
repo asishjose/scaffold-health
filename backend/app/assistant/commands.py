@@ -41,7 +41,7 @@ def ask_assistant(db: Session, *, patient_id: uuid.UUID, question: str) -> Assis
         answer = CLINIC_REDIRECT_MESSAGE
         redirected = True
     else:
-        query_embedding = embed_text(question, task_type="RETRIEVAL_QUERY")
+        query_embedding = embed_text(question, task_type="RETRIEVAL_QUERY", source="assistant")
         chunks = patient_queries.retrieve_patient_education_chunks(
             db, query_embedding=query_embedding
         )
