@@ -1,9 +1,19 @@
 from celery import Celery
+from celery.signals import setup_logging as celery_setup_logging_signal
 
 from app.core.config import settings
+from app.core.logging_config import configure_logging
 
 celery_app = Celery("scaffold_health", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "scaffold_health"
+
+
+# Connecting any receiver to this signal tells Celery to skip its own
+# logging setup entirely, so the worker emits the same structured JSON
+# lines as the API process instead of Celery's default text format.
+@celery_setup_logging_signal.connect
+def _configure_worker_logging(**kwargs) -> None:
+    configure_logging()
 
 # Import every models module so its tables register on Base.metadata before
 # any task runs a query — a task module may only import the model it works

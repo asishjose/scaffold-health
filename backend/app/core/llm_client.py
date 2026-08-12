@@ -11,6 +11,7 @@ this file.
 import hashlib
 import json
 import logging
+import time
 
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import RedisError
@@ -73,6 +74,61 @@ class LLMExtractionError(Exception):
 EMBEDDING_DIMENSIONS = 768
 
 logger = logging.getLogger(__name__)
+
+
+def _groq_usage(response) -> dict[str, int]:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return {}
+    return {
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+    }
+
+
+def _gemini_usage(response) -> dict[str, int]:
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return {}
+    return {
+        "prompt_tokens": usage.prompt_token_count,
+        "completion_tokens": usage.candidates_token_count,
+        "total_tokens": usage.total_token_count,
+    }
+
+
+def _log_llm_call(
+    provider: str, operation: str, start: float, *, tokens: dict | None = None, error: Exception | None = None
+) -> None:
+    """Basic per-call visibility (duration, token usage, success/failure)
+    ahead of a real metrics pipeline — see monitoring notes. `operation`
+    uses the same name across providers for a given logical call (e.g.
+    "extract_facts" whether it ran on Groq or fell back to Gemini) so the
+    two are comparable in logs.
+    """
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+    if error is not None:
+        logger.warning(
+            "llm call failed",
+            extra={
+                "provider": provider,
+                "operation": operation,
+                "duration_ms": duration_ms,
+                "error": str(error),
+            },
+        )
+        return
+    logger.info(
+        "llm call succeeded",
+        extra={
+            "provider": provider,
+            "operation": operation,
+            "duration_ms": duration_ms,
+            **(tokens or {}),
+        },
+    )
+
 
 # Only RETRIEVAL_QUERY embeddings are cached — RETRIEVAL_DOCUMENT calls
 # (chunk indexing) embed effectively-unique text once each, so caching
@@ -402,6 +458,7 @@ def _embed(text: str, *, task_type: str) -> list[float]:
     can monkeypatch it without a network call, mirroring `_generate`.
     """
     client = _get_gemini_client()
+    start = time.perf_counter()
     try:
         response = client.models.embed_content(
             model=settings.gemini_embedding_model,
@@ -412,9 +469,15 @@ def _embed(text: str, *, task_type: str) -> list[float]:
             ),
         )
     except Exception as exc:
+        _log_llm_call("gemini", "embed_text", start, error=exc)
         raise LLMExtractionError(f"Gemini embedding request failed: {exc}") from exc
     if not response.embeddings:
-        raise LLMExtractionError("Gemini returned no embeddings")
+        error = LLMExtractionError("Gemini returned no embeddings")
+        _log_llm_call("gemini", "embed_text", start, error=error)
+        raise error
+    metadata = getattr(response, "metadata", None)
+    tokens = {"billable_characters": metadata.billable_character_count} if metadata else None
+    _log_llm_call("gemini", "embed_text", start, tokens=tokens)
     return list(response.embeddings[0].values)
 
 
@@ -464,6 +527,7 @@ def _generate(text: str, *, allowed_fields: list[str]) -> str:
     without a network call.
     """
     client = _get_client()
+    start = time.perf_counter()
     try:
         response = client.chat.completions.create(
             model=settings.groq_model,
@@ -486,10 +550,14 @@ def _generate(text: str, *, allowed_fields: list[str]) -> str:
             },
         )
     except Exception as exc:
+        _log_llm_call("groq", "extract_facts", start, error=exc)
         raise LLMExtractionError(f"Groq request failed: {exc}") from exc
     raw = response.choices[0].message.content
     if not raw:
-        raise LLMExtractionError("Groq returned an empty response")
+        error = LLMExtractionError("Groq returned an empty response")
+        _log_llm_call("groq", "extract_facts", start, error=error)
+        raise error
+    _log_llm_call("groq", "extract_facts", start, tokens=_groq_usage(response))
     return raw
 
 
@@ -511,6 +579,7 @@ def _generate_brief(
         recent_events_summary=recent_events_summary,
         note_excerpts=note_excerpts,
     )
+    start = time.perf_counter()
     try:
         response = client.chat.completions.create(
             model=settings.groq_model,
@@ -528,10 +597,14 @@ def _generate_brief(
             },
         )
     except Exception as exc:
+        _log_llm_call("groq", "generate_brief", start, error=exc)
         raise LLMExtractionError(f"Groq request failed: {exc}") from exc
     raw = response.choices[0].message.content
     if not raw:
-        raise LLMExtractionError("Groq returned an empty response")
+        error = LLMExtractionError("Groq returned an empty response")
+        _log_llm_call("groq", "generate_brief", start, error=error)
+        raise error
+    _log_llm_call("groq", "generate_brief", start, tokens=_groq_usage(response))
     return raw
 
 
@@ -559,6 +632,7 @@ def _generate_copilot_answer(
         patient_note_excerpts=patient_note_excerpts,
         guideline_excerpts=guideline_excerpts,
     )
+    start = time.perf_counter()
     try:
         response = client.chat.completions.create(
             model=settings.groq_model,
@@ -577,10 +651,14 @@ def _generate_copilot_answer(
             },
         )
     except Exception as exc:
+        _log_llm_call("groq", "copilot_answer", start, error=exc)
         raise LLMExtractionError(f"Groq request failed: {exc}") from exc
     raw = response.choices[0].message.content
     if not raw:
-        raise LLMExtractionError("Groq returned an empty response")
+        error = LLMExtractionError("Groq returned an empty response")
+        _log_llm_call("groq", "copilot_answer", start, error=error)
+        raise error
+    _log_llm_call("groq", "copilot_answer", start, tokens=_groq_usage(response))
     return raw
 
 
@@ -591,6 +669,7 @@ def _generate_assistant_answer(*, question: str, education_excerpts: list[str]) 
     """
     client = _get_client()
     prompt = _assistant_prompt(question=question, education_excerpts=education_excerpts)
+    start = time.perf_counter()
     try:
         response = client.chat.completions.create(
             model=settings.groq_model,
@@ -608,19 +687,28 @@ def _generate_assistant_answer(*, question: str, education_excerpts: list[str]) 
             },
         )
     except Exception as exc:
+        _log_llm_call("groq", "assistant_answer", start, error=exc)
         raise LLMExtractionError(f"Groq request failed: {exc}") from exc
     raw = response.choices[0].message.content
     if not raw:
-        raise LLMExtractionError("Groq returned an empty response")
+        error = LLMExtractionError("Groq returned an empty response")
+        _log_llm_call("groq", "assistant_answer", start, error=error)
+        raise error
+    _log_llm_call("groq", "assistant_answer", start, tokens=_groq_usage(response))
     return raw
 
 
-def _gemini_generate(*, system_instruction: str, contents, schema: type[BaseModel]) -> str:
+def _gemini_generate(
+    *, operation: str, system_instruction: str, contents, schema: type[BaseModel]
+) -> str:
     """Thin seam around the Gemini SDK text-generation call, shared by all
     four fallback functions below, mirroring the Groq `_generate*` seams so
     tests can monkeypatch each fallback independently without a network call.
+    `operation` uses the same name as the corresponding Groq seam (e.g.
+    "extract_facts"), so the two providers' logs are comparable.
     """
     client = _get_gemini_client()
+    start = time.perf_counter()
     try:
         response = client.models.generate_content(
             model=settings.gemini_model,
@@ -632,15 +720,20 @@ def _gemini_generate(*, system_instruction: str, contents, schema: type[BaseMode
             ),
         )
     except Exception as exc:
+        _log_llm_call("gemini", operation, start, error=exc)
         raise LLMExtractionError(f"Gemini request failed: {exc}") from exc
     raw = response.text
     if not raw:
-        raise LLMExtractionError("Gemini returned an empty response")
+        error = LLMExtractionError("Gemini returned an empty response")
+        _log_llm_call("gemini", operation, start, error=error)
+        raise error
+    _log_llm_call("gemini", operation, start, tokens=_gemini_usage(response))
     return raw
 
 
 def _generate_gemini(text: str, *, allowed_fields: list[str]) -> str:
     return _gemini_generate(
+        operation="extract_facts",
         system_instruction=_EXTRACTION_SYSTEM_INSTRUCTION.format(fields=", ".join(allowed_fields)),
         contents=text,
         schema=_ExtractedFactsPayload,
@@ -655,6 +748,7 @@ def _generate_brief_gemini(
     note_excerpts: list[str],
 ) -> str:
     return _gemini_generate(
+        operation="generate_brief",
         system_instruction=_BRIEF_SYSTEM_INSTRUCTION,
         contents=_brief_prompt(
             profile_summary=profile_summary,
@@ -668,6 +762,7 @@ def _generate_brief_gemini(
 
 def _generate_assistant_answer_gemini(*, question: str, education_excerpts: list[str]) -> str:
     return _gemini_generate(
+        operation="assistant_answer",
         system_instruction=_ASSISTANT_SYSTEM_INSTRUCTION,
         contents=_assistant_prompt(question=question, education_excerpts=education_excerpts),
         schema=AssistantAnswer,
@@ -701,6 +796,7 @@ def _generate_copilot_answer_gemini(
         guideline_excerpts=guideline_excerpts,
     )
     return _gemini_generate(
+        operation="copilot_answer",
         system_instruction=_COPILOT_SYSTEM_INSTRUCTION,
         contents=[*gemini_history, {"role": "user", "parts": [{"text": prompt}]}],
         schema=CopilotAnswer,
