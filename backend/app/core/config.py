@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,7 +36,19 @@ class Settings(BaseSettings):
 
     invite_token_expire_hours: int = 48
 
+    # "local" writes uploaded PDFs to documents_storage_dir on whichever
+    # machine handles the request — only correct when the API and worker
+    # share a filesystem, as they do in docker-compose. "azure_blob" is
+    # required once they run on separate hosts (Container Apps + a VM),
+    # since there's no disk shared between them there.
+    storage_backend: Literal["local", "azure_blob"] = "local"
     documents_storage_dir: str = "/app/data/documents"
+    azure_storage_connection_string: str | None = None
+    documents_blob_container: str = "documents"
+
+    # Comma-separated list of origins allowed to call the API cross-origin.
+    # Placeholder until the Static Web Apps domain exists (deployment Phase 3a).
+    cors_allowed_origins: str = "https://PLACEHOLDER.azurestaticapps.net"
 
 
 settings = Settings()
