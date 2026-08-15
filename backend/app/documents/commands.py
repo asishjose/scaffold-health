@@ -1,12 +1,10 @@
 import uuid
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.logging_config import get_trace_id
-from app.documents import projector
+from app.documents import projector, storage
 from app.documents.events import (
     DOCUMENT_EXTRACTION_FAILED,
     DOCUMENT_TEXT_EXTRACTED,
@@ -51,10 +49,7 @@ def upload_document(
         raise InvalidFileType()
 
     document_id = uuid.uuid4()
-    storage_dir = Path(settings.documents_storage_dir)
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    storage_path = storage_dir / f"{document_id}.pdf"
-    storage_path.write_bytes(file_bytes)
+    storage_path = storage.save_document_bytes(document_id, file_bytes)
 
     event = append_event(
         db,
@@ -66,7 +61,7 @@ def upload_document(
             "therapist_id": str(therapist_id),
             "filename": filename,
             "content_type": content_type,
-            "storage_path": str(storage_path),
+            "storage_path": storage_path,
         },
         actor_id=therapist_id,
         actor_role="therapist",

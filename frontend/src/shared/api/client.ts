@@ -1,8 +1,12 @@
 import { useAuthStore } from '@/shared/auth/authStore'
 
-// Backend paths are root-level (/auth, /patients, …); the dev proxy strips
-// this prefix. Keeps SPA routes and API paths from colliding.
-const API_PREFIX = '/api'
+// In dev, '/api' is relative and hits the Vite proxy, which strips the
+// prefix before forwarding to the backend's root-level paths (/auth,
+// /patients, …) — keeps SPA routes and API paths from colliding. In
+// production there's no proxy (frontend and API are cross-origin), so
+// VITE_API_BASE_URL points straight at the API origin and paths are used
+// as-is, since the backend itself has no /api prefix.
+const API_PREFIX = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
 export class ApiError extends Error {
   status: number

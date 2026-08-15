@@ -1,3 +1,4 @@
+import io
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -9,7 +10,7 @@ from app.core.celery_app import celery_app
 from app.core.db import SessionLocal
 from app.core.llm_client import LLMExtractionError, extract_facts
 from app.core.logging_config import bind_context
-from app.documents import commands
+from app.documents import commands, storage
 from app.documents.models import Document
 from app.patients.models import Patient
 from app.profile.commands import MergeResult, merge_extracted_facts
@@ -87,7 +88,8 @@ def process_document(self, document_id: str, trace_id: str | None = None) -> Non
 
 
 def _extract_text(storage_path: str) -> str:
-    reader = PdfReader(storage_path)
+    file_bytes = storage.read_document_bytes(storage_path)
+    reader = PdfReader(io.BytesIO(file_bytes))
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 

@@ -14,3 +14,4 @@ pypdf==5.0.1
 groq==1.6.0
 google-genai==1.20.0
 pgvector==0.5.0
+azure-storage-blob==12.30.0
