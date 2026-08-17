@@ -1,7 +1,7 @@
 # Scaffold Health — Cloud Deployment Plan (Azure Free Tier)
 
 **Version:** 1.0
-**Status:** Planned, not yet executed
+**Status:** Deployed (Phases 0–3b complete as of 2026-08-17); Phase 4 verification in progress
 **Target:** First production deployment (fresh install, no data migration)
 
 ---
@@ -23,7 +23,7 @@ This is a fresh deploy — no existing production data, so no data migration or 
 | `db` (Postgres + pgvector) | Azure Database for PostgreSQL — **Flexible Server**, Burstable B1MS | 12-month free (750 hrs/mo, 32GB storage + 32GB backup) | $0 |
 | `api` (FastAPI) | **Azure Container Apps** — Consumption plan, scale-to-zero, built-in HTTPS ingress | Always free (180,000 vCPU-s, 360,000 GiB-s, 2M requests/mo) | $0, as long as traffic stays bursty enough to scale to zero between requests |
 | `worker` (Celery) | Azure VM — **B2ats v2** (AMD burstable), **no public IP attached** | 12-month free (750 hrs/mo) | $0 |
-| Container image registry | **Azure Container Registry**, Standard tier (needed to push the API's image for Container Apps to pull) | 12-month free (100GB storage, 10 webhooks) | $0 |
+| Container image registry | **Azure Container Registry**, Standard tier (needed to push the API's image for Container Apps to pull) | 12-month free (100GB storage, 10 webhooks) — tied to this subscription's free-account clock, confirmed live in-portal under Subscription → "Free services for 12 months" (**expires 2027-05-19**), not a permanent always-free tier | $0 |
 | `redis` (Gemini query-embedding cache) | **Upstash Redis** (third-party, permanent free tier) | Always free (256MB, 500K commands/mo) | $0 |
 | `frontend` (React) | Azure **Static Web Apps** | Always free (100GB bandwidth, auto-HTTPS) | $0 |
 | `document_uploads` volume | Azure **Blob Storage**, or VM local disk for v1 | 12-month free / included in VM disk allowance | $0 |
@@ -88,6 +88,7 @@ Redis has no free managed tier on any of the three major clouds (Azure Cache for
 22. Migrate documents to Blob Storage, if deferred in step 10.
 23. Move secrets into Key Vault instead of a VM-local `.env` file.
 24. Wire the existing structured JSON logging/trace correlation into Application Insights.
+25. Before **2027-05-19** (when this subscription's free-account year ends, taking the free Container Registry with it — see §2), either downgrade the registry to Basic (~$5/mo, still not free) or migrate images to a permanent free registry (e.g. AWS ECR Public — 50GB storage + 500GB–5TB/mo free egress, an official always-free tier, verified 2026-08-16). Also re-check the Postgres Flexible Server and worker VM free-tier clocks at the same time, per the 12-month note in §3.
 
 ---
 
