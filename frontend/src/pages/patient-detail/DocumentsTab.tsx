@@ -79,7 +79,7 @@ function DocumentsPanel({ patientId }: { patientId: string }) {
           <p className="text-sm text-destructive">
             {upload.error instanceof ApiError && typeof upload.error.detail === 'string'
               ? upload.error.detail
-              : 'Upload failed. Only PDF files are accepted.'}
+              : 'Upload failed. Please try again.'}
           </p>
         )}
 

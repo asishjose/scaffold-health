@@ -1,3 +1,5 @@
+import ssl
+
 from celery import Celery
 from celery.signals import setup_logging as celery_setup_logging_signal
 
@@ -6,6 +8,16 @@ from app.core.logging_config import configure_logging
 
 celery_app = Celery("scaffold_health", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.task_default_queue = "scaffold_health"
+
+# Celery's redis broker/backend (unlike redis-py's own client) refuses to
+# initialize over rediss:// unless ssl_cert_reqs is set explicitly — it
+# won't infer a default the way redis-py does. Upstash (production) uses
+# rediss://; local docker-compose Redis uses plain redis://, so this is a
+# no-op there.
+if settings.redis_url.startswith("rediss://"):
+    _redis_ssl_opts = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
+    celery_app.conf.broker_use_ssl = _redis_ssl_opts
+    celery_app.conf.redis_backend_use_ssl = _redis_ssl_opts
 
 
 # Connecting any receiver to this signal tells Celery to skip its own
