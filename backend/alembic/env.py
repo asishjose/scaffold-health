@@ -19,7 +19,11 @@ from app.profile import models as profile_models  # noqa: F401
 from app.rag import models as rag_models  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# set_main_option() stores the value via ConfigParser, which treats "%" as
+# interpolation syntax — a URL-encoded password (e.g. "%40" for "@") isn't
+# valid interpolation syntax and raises. Escape "%" to "%%" so the URL is
+# stored literally regardless of what characters the password contains.
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
