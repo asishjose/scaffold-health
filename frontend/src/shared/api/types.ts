@@ -171,6 +171,14 @@ export interface AssistantAnswer {
   asked_at: string
 }
 
+export interface FlaggedQuestion {
+  id: string
+  patient_id: string
+  question: string
+  answer: string
+  asked_at: string
+}
+
 export type CopilotMessageRole = 'therapist' | 'assistant'
 
 export interface CopilotMessage {

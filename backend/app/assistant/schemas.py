@@ -17,3 +17,15 @@ class AssistantResponse(BaseModel):
     answer: str
     redirected: bool
     asked_at: datetime
+
+
+class FlaggedQuestionResponse(BaseModel):
+    """One redirected AssistantInteraction awaiting therapist acknowledgment."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    patient_id: uuid.UUID
+    question: str
+    answer: str
+    asked_at: datetime

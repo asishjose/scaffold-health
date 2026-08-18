@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.assistant.models import AssistantInteraction
+from app.assistant.models import AssistantInteraction, AssistantInteractionAcknowledgment
 from app.checkins.models import CheckIn
 from app.documents.models import Document
 from app.patients.events import PHASE_SEQUENCE
@@ -59,22 +59,48 @@ def list_checkins(db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
     )
 
 
-def has_recent_assistant_redirect(
-    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID, window_start: datetime
+def has_unacknowledged_flagged_question(
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
 ) -> bool:
     return (
         db.execute(
             select(AssistantInteraction.id)
             .join(Patient, Patient.id == AssistantInteraction.patient_id)
+            .outerjoin(
+                AssistantInteractionAcknowledgment,
+                AssistantInteractionAcknowledgment.assistant_interaction_id == AssistantInteraction.id,
+            )
             .where(
                 AssistantInteraction.patient_id == patient_id,
                 Patient.therapist_id == therapist_id,
                 AssistantInteraction.redirected.is_(True),
-                AssistantInteraction.asked_at >= window_start,
+                AssistantInteractionAcknowledgment.id.is_(None),
             )
             .limit(1)
         ).scalar_one_or_none()
         is not None
+    )
+
+
+def list_flagged_questions(
+    db: Session, *, therapist_id: uuid.UUID, patient_id: uuid.UUID
+) -> list[AssistantInteraction]:
+    return list(
+        db.execute(
+            select(AssistantInteraction)
+            .join(Patient, Patient.id == AssistantInteraction.patient_id)
+            .outerjoin(
+                AssistantInteractionAcknowledgment,
+                AssistantInteractionAcknowledgment.assistant_interaction_id == AssistantInteraction.id,
+            )
+            .where(
+                AssistantInteraction.patient_id == patient_id,
+                Patient.therapist_id == therapist_id,
+                AssistantInteraction.redirected.is_(True),
+                AssistantInteractionAcknowledgment.id.is_(None),
+            )
+            .order_by(AssistantInteraction.asked_at.desc())
+        ).scalars()
     )
 
 
@@ -221,10 +247,14 @@ def list_needs_review_reasons(
         db.execute(
             select(AssistantInteraction.patient_id)
             .join(Patient, Patient.id == AssistantInteraction.patient_id)
+            .outerjoin(
+                AssistantInteractionAcknowledgment,
+                AssistantInteractionAcknowledgment.assistant_interaction_id == AssistantInteraction.id,
+            )
             .where(
                 Patient.therapist_id == therapist_id,
                 AssistantInteraction.redirected.is_(True),
-                AssistantInteraction.asked_at >= window_start,
+                AssistantInteractionAcknowledgment.id.is_(None),
             )
             .distinct()
         ).scalars()

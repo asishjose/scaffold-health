@@ -79,8 +79,8 @@ def generate_brief(db: Session, *, patient_id: uuid.UUID, therapist_id: uuid.UUI
         has_pending_extraction=therapist_queries.has_pending_facts(
             db, therapist_id=therapist_id, patient_id=patient_id
         ),
-        has_recent_assistant_redirect=therapist_queries.has_recent_assistant_redirect(
-            db, therapist_id=therapist_id, patient_id=patient_id, window_start=window_start
+        has_recent_assistant_redirect=therapist_queries.has_unacknowledged_flagged_question(
+            db, therapist_id=therapist_id, patient_id=patient_id
         ),
         invite_accepted_at=patient.invite_accepted_at,
         is_discharged=patient.current_phase == therapist_queries.DISCHARGED_PHASE,

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 
+import { FlaggedQuestionsPanel } from '@/pages/patient-detail/FlaggedQuestionsPanel'
 import type { PatientDetail as PatientDetailType, PendingProfileFact } from '@/shared/api/types'
 import { useDocuments } from '@/shared/hooks/useDocuments'
 import { useApprovePendingFact, usePendingFacts, useRejectPendingFact } from '@/shared/hooks/usePatients'
@@ -162,5 +163,10 @@ function PendingFactsPanel({ patientId }: { patientId: string }) {
 
 export function PendingFactsTab() {
   const patient = useOutletContext<PatientDetailType>()
-  return <PendingFactsPanel patientId={patient.id} />
+  return (
+    <div className="space-y-6">
+      <FlaggedQuestionsPanel patientId={patient.id} />
+      <PendingFactsPanel patientId={patient.id} />
+    </div>
+  )
 }
