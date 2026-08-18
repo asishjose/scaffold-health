@@ -87,6 +87,7 @@ flowchart TD
 - No real email delivery infrastructure — invite links are shared manually by the therapist.
 - Built for synthetic data: production-grade PHI handling (BAA-covered LLM hosting, at-rest/in-transit encryption posture, full HIPAA-style audit logging) is a defined future requirement, not a current guarantee.
 - Scope ceiling is orthopedic/MSK rehab only — permanent, not a temporary constraint.
+- Deployment is largely manual today: only the frontend build/deploy is automated (GitHub Actions → Static Web Apps). API/worker image builds, Container App rollout, and DB migrations are all run by hand — see [CI/CD Plan](docs/CICD_PLAN.md) for the automation roadmap.
 
 ## Roadmap
 
@@ -103,6 +104,9 @@ flowchart TD
 - [AI/LLM Architecture](docs/PRD.md#9-aillm-requirements) — extraction, merge routing, and Copilot prompt design
 - [Data Model & Merge Strategy](docs/PRD.md#63-knowledge-builder-merge-strategy-per-field) — per-field merge strategies and provenance
 - [API Surface](docs/PRD.md#72-api-surface) — endpoint reference (live interactive docs also served at `/docs` when the API is running)
+- [Deployment Plan](docs/DEPLOYMENT.md) — Azure architecture, service mapping, cost breakdown
+- [CI/CD Plan](docs/CICD_PLAN.md) — current automation state and rollout plan
+- [Final Project Report](docs/FINAL_REPORT.md) — full project write-up
 
 ## Quick start
 
@@ -121,3 +125,10 @@ Run the backend test suite:
 ```
 docker compose exec api python -m pytest
 ```
+
+## Deployment
+
+The app is live in production on Azure's free tier at $0/month — frontend, API, worker, Postgres, and Redis all deployed, using a hybrid split (API on Container Apps, Celery worker on a no-public-IP VM) to stay within free-tier limits. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full architecture, service mapping, and known constraints.
+
+- Frontend: https://salmon-moss-0f742761e.7.azurestaticapps.net
+- API: https://scaffold-api.bluepond-8365be39.westus2.azurecontainerapps.io (`GET /health`)
