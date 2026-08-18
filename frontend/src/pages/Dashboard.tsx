@@ -1,6 +1,7 @@
 import { AlertTriangle, Mail, Users, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { FeatureCarousel } from '@/shared/components/FeatureCarousel'
 import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
 import { usePatients } from '@/shared/hooks/usePatients'
 import {
@@ -63,6 +64,7 @@ export function Dashboard() {
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Caseload health at a glance.</p>
         </div>
+        <FeatureCarousel />
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             No patients yet.{' '}
@@ -88,6 +90,8 @@ export function Dashboard() {
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <p className="text-sm text-muted-foreground">Caseload health at a glance.</p>
       </div>
+
+      <FeatureCarousel />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard icon={Users} label="Total patients" value={data.length} />
