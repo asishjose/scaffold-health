@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 
 import { NeedsReviewBadges } from '@/shared/components/NeedsReviewBadges'
-import { usePatient, usePendingFacts } from '@/shared/hooks/usePatients'
+import { useFlaggedQuestions, usePatient, usePendingFacts } from '@/shared/hooks/usePatients'
 import { SidebarNavItem } from '@/shared/layout/SidebarNavItem'
 import { phaseLabel } from '@/shared/phases'
 import { Badge } from '@/shared/ui/badge'
@@ -16,7 +16,8 @@ import { Badge } from '@/shared/ui/badge'
 export function PatientSidebar({ patientId }: { patientId: string }) {
   const patient = usePatient(patientId)
   const pendingFacts = usePendingFacts(patientId)
-  const pendingCount = pendingFacts.data?.length ?? 0
+  const flaggedQuestions = useFlaggedQuestions(patientId)
+  const pendingCount = (pendingFacts.data?.length ?? 0) + (flaggedQuestions.data?.length ?? 0)
 
   return (
     <div className="flex flex-col gap-3 p-3">

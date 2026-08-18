@@ -107,3 +107,89 @@ def test_ask_assistant_rejects_unknown_patient(
 
     with pytest.raises(commands.PatientNotFound):
         commands.ask_assistant(db, patient_id=uuid.uuid4(), question="How do I use crutches?")
+
+
+def _make_flagged_interaction(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Returns (patient_id, therapist_id, interaction_id) for a freshly
+    created patient whose one assistant question was redirected.
+    """
+    from app.patients.models import Patient
+
+    patient_id = _make_patient(db)
+    _stub_llm(monkeypatch, [])
+    interaction = commands.ask_assistant(
+        db, patient_id=patient_id, question="My knee is red and swollen, is that normal?"
+    )
+    therapist_id = db.get(Patient, patient_id).therapist_id
+    return patient_id, therapist_id, interaction.id
+
+
+def test_acknowledge_flagged_question_marks_it_acknowledged(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patient_id, therapist_id, interaction_id = _make_flagged_interaction(db, monkeypatch)
+
+    ack = commands.acknowledge_flagged_question(
+        db, patient_id=patient_id, therapist_id=therapist_id, interaction_id=interaction_id
+    )
+
+    assert ack.assistant_interaction_id == interaction_id
+    assert ack.acknowledged_by_id == therapist_id
+
+
+def test_acknowledge_flagged_question_rejects_unknown_interaction(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patient_id, therapist_id, _interaction_id = _make_flagged_interaction(db, monkeypatch)
+
+    with pytest.raises(commands.FlaggedQuestionNotFound):
+        commands.acknowledge_flagged_question(
+            db, patient_id=patient_id, therapist_id=therapist_id, interaction_id=uuid.uuid4()
+        )
+
+
+def test_acknowledge_flagged_question_rejects_non_owning_therapist(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patient_id, _therapist_id, interaction_id = _make_flagged_interaction(db, monkeypatch)
+
+    with pytest.raises(commands.FlaggedQuestionNotFound):
+        commands.acknowledge_flagged_question(
+            db, patient_id=patient_id, therapist_id=uuid.uuid4(), interaction_id=interaction_id
+        )
+
+
+def test_acknowledge_flagged_question_rejects_non_redirected_interaction(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.patients.models import Patient
+
+    patient_id = _make_patient(db)
+    calls: list[dict] = []
+    _stub_llm(monkeypatch, calls, answer="Ice for 15-20 minutes at a time.")
+    interaction = commands.ask_assistant(
+        db, patient_id=patient_id, question="How long should I ice my knee?"
+    )
+    therapist_id = db.get(Patient, patient_id).therapist_id
+
+    with pytest.raises(commands.FlaggedQuestionNotFound):
+        commands.acknowledge_flagged_question(
+            db, patient_id=patient_id, therapist_id=therapist_id, interaction_id=interaction.id
+        )
+
+
+def test_acknowledge_flagged_question_rejects_already_acknowledged(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patient_id, therapist_id, interaction_id = _make_flagged_interaction(db, monkeypatch)
+
+    commands.acknowledge_flagged_question(
+        db, patient_id=patient_id, therapist_id=therapist_id, interaction_id=interaction_id
+    )
+
+    with pytest.raises(commands.FlaggedQuestionAlreadyAcknowledged):
+        commands.acknowledge_flagged_question(
+            db, patient_id=patient_id, therapist_id=therapist_id, interaction_id=interaction_id
+        )

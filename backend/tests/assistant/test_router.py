@@ -137,3 +137,103 @@ def test_ask_assistant_rejects_unknown_patient() -> None:
     )
 
     assert response.status_code == 404
+
+
+def _flag_a_question(therapist_token: str, patient_id: str, patient_token: str) -> str:
+    response = client.post(
+        f"/patients/{patient_id}/assistant",
+        json={"question": "My incision is red and draining, is that normal?"},
+        headers=_auth_headers(patient_token),
+    )
+    return response.json()["id"]
+
+
+def test_list_flagged_questions_as_owning_therapist() -> None:
+    therapist_token = _signup_and_login_therapist()
+    patient_id, patient_token = _create_and_activate_patient(therapist_token)
+    interaction_id = _flag_a_question(therapist_token, patient_id, patient_token)
+
+    response = client.get(
+        f"/patients/{patient_id}/assistant/flagged-questions",
+        headers=_auth_headers(therapist_token),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["id"] == interaction_id
+    assert "incision" in body[0]["question"]
+
+
+def test_list_flagged_questions_rejects_patient_role() -> None:
+    therapist_token = _signup_and_login_therapist()
+    patient_id, patient_token = _create_and_activate_patient(therapist_token)
+
+    response = client.get(
+        f"/patients/{patient_id}/assistant/flagged-questions",
+        headers=_auth_headers(patient_token),
+    )
+
+    assert response.status_code == 403
+
+
+def test_list_flagged_questions_rejects_non_owning_therapist() -> None:
+    therapist_token = _signup_and_login_therapist()
+    patient_id, patient_token = _create_and_activate_patient(therapist_token)
+    _flag_a_question(therapist_token, patient_id, patient_token)
+
+    other_therapist_token = _signup_and_login_therapist()
+    response = client.get(
+        f"/patients/{patient_id}/assistant/flagged-questions",
+        headers=_auth_headers(other_therapist_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_acknowledge_flagged_question_removes_it_from_the_list() -> None:
+    therapist_token = _signup_and_login_therapist()
+    patient_id, patient_token = _create_and_activate_patient(therapist_token)
+    interaction_id = _flag_a_question(therapist_token, patient_id, patient_token)
+
+    ack_response = client.post(
+        f"/patients/{patient_id}/assistant/flagged-questions/{interaction_id}/acknowledge",
+        headers=_auth_headers(therapist_token),
+    )
+    assert ack_response.status_code == 200, ack_response.text
+    assert ack_response.json()["id"] == interaction_id
+
+    list_response = client.get(
+        f"/patients/{patient_id}/assistant/flagged-questions",
+        headers=_auth_headers(therapist_token),
+    )
+    assert list_response.json() == []
+
+
+def test_acknowledge_flagged_question_rejects_double_acknowledge() -> None:
+    therapist_token = _signup_and_login_therapist()
+    patient_id, patient_token = _create_and_activate_patient(therapist_token)
+    interaction_id = _flag_a_question(therapist_token, patient_id, patient_token)
+
+    client.post(
+        f"/patients/{patient_id}/assistant/flagged-questions/{interaction_id}/acknowledge",
+        headers=_auth_headers(therapist_token),
+    )
+    response = client.post(
+        f"/patients/{patient_id}/assistant/flagged-questions/{interaction_id}/acknowledge",
+        headers=_auth_headers(therapist_token),
+    )
+
+    assert response.status_code == 409
+
+
+def test_acknowledge_flagged_question_rejects_unknown_interaction() -> None:
+    therapist_token = _signup_and_login_therapist()
+    patient_id, _patient_token = _create_and_activate_patient(therapist_token)
+
+    response = client.post(
+        f"/patients/{patient_id}/assistant/flagged-questions/{uuid.uuid4()}/acknowledge",
+        headers=_auth_headers(therapist_token),
+    )
+
+    assert response.status_code == 404

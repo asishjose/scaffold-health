@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '@/shared/api/client'
 import type {
+  FlaggedQuestion,
   PatientDetail,
   PatientIntakeResponse,
   PatientListItem,
@@ -91,5 +92,28 @@ export function useRejectPendingFact(patientId: string) {
         method: 'POST',
       }),
     onSuccess: () => invalidatePendingFactQueries(queryClient, patientId),
+  })
+}
+
+export function useFlaggedQuestions(patientId: string) {
+  return useQuery({
+    queryKey: ['patients', patientId, 'flagged-questions'],
+    queryFn: () => api<FlaggedQuestion[]>(`/patients/${patientId}/assistant/flagged-questions`),
+  })
+}
+
+export function useAcknowledgeFlaggedQuestion(patientId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (interactionId: string) =>
+      api<FlaggedQuestion>(
+        `/patients/${patientId}/assistant/flagged-questions/${interactionId}/acknowledge`,
+        { method: 'POST' }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients', patientId] })
+      queryClient.invalidateQueries({ queryKey: ['patients', patientId, 'flagged-questions'] })
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+    },
   })
 }
